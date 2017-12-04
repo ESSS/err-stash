@@ -8,25 +8,27 @@ from errbot import BotPlugin, botcmd, arg_botcmd
 
 
 class StashAPI:
+    """
+    Thin access to the stashy API.
+
+    We have this thin layer in order to mock it during testing.
+    """
+
     def __init__(self, url, project, *, username, password):
         self._stash = stashy.connect(url, username=username, password=password)
         self._project = project
         self._url = url
 
-
     @property
     def project(self):
         return self._project
-
 
     @property
     def url(self):
         return self._url
 
-
     def fetch_repos(self):
         return self._stash.projects[self._project].repos.list()
-
 
     def fetch_branches(self, slug, filter_text):
         return self._stash.projects[self._project].repos[slug].branches(filterText=filter_text)
@@ -37,7 +39,6 @@ class StashAPI:
     def fetch_pull_requests(self, slug):
         return self._stash.projects[self._project].repos[slug].pull_requests.all()
 
-
     def fetch_pull_request(self, slug, pr_id):
         return self._stash.projects[self._project].repos[slug].pull_requests[pr_id]
 
@@ -46,6 +47,9 @@ class StashAPI:
 
 
 class MergePlan:
+    """
+    Contains information about branch and PRs that will be involved in a merge operation.
+    """
     def __init__(self, slug):
         self.slug = slug
         self.branches = []
@@ -53,15 +57,18 @@ class MergePlan:
 
 
 def get_self_url(d):
+    """Returns the URL of a Stash resource"""
     return d['links']['self'][0]['href']
 
 
 def commits_text(commits):
+    """Returns text in the form 'X commits' or '1 commit'"""
     plural = 's' if len(commits) != 1 else ''
     return '{} commit{}'.format(len(commits), plural)
 
 
 class CheckError(Exception):
+    """Exception raised when one of the various checks done before a merge is done fails"""
     def __init__(self, lines):
         if isinstance(lines, str):
             lines = [lines]
@@ -70,6 +77,11 @@ class CheckError(Exception):
 
 
 def create_plans(api, branch_text):
+    """
+    Go over all the branches in all repositories searching for branches and PRs that match the given branch text.
+
+    :rtype: List[MergePlan]
+    """
     repos = api.fetch_repos()
     plans = []
     has_prs = False
@@ -99,6 +111,7 @@ def create_plans(api, branch_text):
 
 
 def ensure_text_matches_unique_branch(plans, branch_text):
+    """Ensure that the given branch text matches only a single branch"""
     # check if any of the plans have matched more than one branch
     error_lines = []
     for plan in plans:
@@ -116,6 +129,7 @@ def ensure_text_matches_unique_branch(plans, branch_text):
 
 
 def ensure_unique_pull_requests(plans, from_branch_display_id):
+    """Ensure we have only one PR per repository for the given branch"""
     error_lines = []
     for plan in plans:
         if len(plan.pull_requests) > 1:
@@ -129,6 +143,7 @@ def ensure_unique_pull_requests(plans, from_branch_display_id):
 
 
 def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
+    """Ensure that all PRs target the same branch"""
     # check that all PRs for the branch target the same "to" branch
     result = None
     multiple_target_branches = False
@@ -157,6 +172,7 @@ def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
 
 
 def make_pr_link(api, slug, from_branch, to_branch):
+    """Generates a URL that can be used to create a PR"""
     from urllib.parse import urlencode
     params = OrderedDict([('sourceBranch', from_branch), ('targetBranch', to_branch)])
     base_url = '{url}/projects/{project}/repos/{slug}/compare/commits?'.format(url=api.url, project=api.project,
@@ -165,6 +181,7 @@ def make_pr_link(api, slug, from_branch, to_branch):
 
 
 def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch, to_branch):
+    """Returns a summary of the commits in each PR that will be merged"""
     error_lines = []
     result = []
     for plan in plans:
@@ -186,6 +203,7 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch, to_
 
 
 def ensure_no_conflicts(api, from_branch, plans):
+    """Ensures that all PRs are not in a conflicting state"""
     error_lines = []
     for plan in plans:
         pr_data = plan.pull_requests[0]
@@ -202,6 +220,17 @@ def ensure_no_conflicts(api, from_branch, plans):
 
 
 def merge(url, project, username, password, branch_text, confirm):
+    """
+    Merges PRs in repositories which match a given branch name, performing various checks beforehand.
+
+    :param str url: URL to stash server.
+    :param str project: Stash project name
+    :param str username: username
+    :param str password: password or access token (write access).
+    :param str branch_text: complete or partial branch name to search for
+    :param bool confirm: if True, perform the merge, otherwise just print what would happen.
+    :raise CheckError: if a check for merging-readiness fails.
+    """
     api = StashAPI(url, project, username=username, password=password)
 
     plans = create_plans(api, branch_text)
@@ -260,7 +289,7 @@ class StashBot(BotPlugin):
 
     @botcmd(split_args_with=None)
     def stash_token(self, msg, args):
-        """Set or get your Jenkins token"""
+        """Set or get your Stash token"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not args:
@@ -277,6 +306,7 @@ class StashBot(BotPlugin):
     @arg_botcmd('branch_text', help='Branch name to merge')
     @arg_botcmd('--project', dest='project', default='ESSS', help='Name of the Stash project to search')
     def stash_merge(self, msg, branch_text, project):
+        """Merges PRs related to a branch (which can be a partial match)"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not settings['token']:
@@ -291,13 +321,21 @@ class StashBot(BotPlugin):
 
 NO_TOKEN_MSG = """
 **Stash API Token not configured**. 
-Create a new token [here]({stash_url}/plugins/servlet/access-tokens/manage) and then execute:
+Create a new token [here]({stash_url}/plugins/servlet/access-tokens/manage) with **write access** and then execute:
     `!stash token <TOKEN>` 
 This only needs to be done once.
 """
 
 
 def main(args):
+    """Command-line implementation.
+
+    For convenience one can define a "default.ini" file with user name and token:
+
+    [err-stash]
+    user = bruno
+    password = secret-token
+    """
     p = Path(__file__).parent.joinpath('default.ini')
     if p.is_file():
         config = ConfigParser()
