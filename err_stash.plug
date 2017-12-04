@@ -1,0 +1,9 @@
+[Core]
+Name = Stash
+Module = err_stash.py
+
+[Documentation]
+Description = ESSS Stash workflow helper
+
+[Python]
+Version = 3

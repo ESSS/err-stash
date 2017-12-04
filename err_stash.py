@@ -4,6 +4,7 @@ from configparser import ConfigParser
 from pathlib import Path
 
 import stashy
+from errbot import BotPlugin, botcmd, arg_botcmd
 
 
 class StashAPI:
@@ -203,15 +204,6 @@ def ensure_no_conflicts(api, from_branch, plans):
 def merge(url, project, username, password, branch_text, confirm):
     api = StashAPI(url, project, username=username, password=password)
 
-    # b1 = 'fb-SSRL-3737-sourres-export-tool'
-    # b2 = 'refs/heads/master'
-    # for x in api._stash.projects['ESSS'].repos['souring'].commits(b1, b2):
-    #     #import pprint
-    #     #pprint.pprint(x)
-    #     print(x)
-    #     #break
-    # return
-
     plans = create_plans(api, branch_text)
     from_branch = ensure_text_matches_unique_branch(plans, branch_text)
     ensure_unique_pull_requests(plans, from_branch)
@@ -240,6 +232,69 @@ def merge(url, project, username, password, branch_text, confirm):
     yield 'Branch deleted from repositories: {}'.format(', '.join(repo_list))
     if not confirm:
         yield '{x} dry-run {x}'.format(x='-' * 30)
+
+
+class StashBot(BotPlugin):
+    """Stash commands tailored to ESSS workflow"""
+
+    def get_configuration_template(self):
+        return {
+            'STASH_URL': 'https://eden.esss.com.br/stash',
+        }
+
+    def load_user_settings(self, user):
+        key = 'user:{}'.format(user)
+        settings = {
+            'token': '',
+        }
+        loaded = self.get(key, settings)
+        settings.update(loaded)
+        self.log.debug('LOAD ({}) settings: {}'.format(user, settings))
+        return settings
+
+    def save_user_settings(self, user, settings):
+        key = 'user:{}'.format(user)
+        self[key] = settings
+        self.log.debug('SAVE ({}) settings: {}'.format(user, settings))
+
+
+    @botcmd(split_args_with=None)
+    def stash_token(self, msg, args):
+        """Set or get your Jenkins token"""
+        user = msg.frm.nick
+        settings = self.load_user_settings(user)
+        if not args:
+            if settings['token']:
+                return "You API Token is: `{}` (user: {})".format(settings['token'], user)
+            else:
+                return NO_TOKEN_MSG.format(stash_url=self.config['STASH_URL'])
+        else:
+            settings['token'] = args[0]
+            self.save_user_settings(user, settings)
+            return "Token saved."
+
+
+    @arg_botcmd('branch_text', help='Branch name to merge')
+    @arg_botcmd('--project', dest='project', default='ESSS', help='Name of the Stash project to search')
+    def stash_merge(self, msg, branch_text, project):
+        user = msg.frm.nick
+        settings = self.load_user_settings(user)
+        if not settings['token']:
+            return self.stash_token(msg, [])
+        try:
+            lines = list(merge(self.config['STASH_URL'], project, username=user, password=settings['token'],
+                               branch_text=branch_text, confirm=True))
+        except CheckError as e:
+            lines = e.lines
+        return '\n'.join(lines)
+
+
+NO_TOKEN_MSG = """
+**Stash API Token not configured**. 
+Create a new token [here]({stash_url}/plugins/servlet/access-tokens/manage) and then execute:
+    `!stash token <TOKEN>` 
+This only needs to be done once.
+"""
 
 
 def main(args):

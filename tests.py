@@ -222,3 +222,53 @@ def test_no_matching_branch(mock_api):
     call_merge('FOOBAR-81', [
         r'Could not find any branch with text `"FOOBAR-81"` in any repositories of the `"PROJ"` project.',
     ])
+
+
+pytest_plugins = ["errbot.backends.test"]
+extra_plugin_dir = '.'
+
+
+class TestBot:
+    """Tests for the bot commands"""
+
+    @pytest.fixture
+    def testbot(self, testbot):
+        from errbot.backends.test import TestPerson
+        testbot.bot.sender = TestPerson('fry@localhost', nick='fry')
+        return testbot
+
+
+    @pytest.fixture(autouse=True)
+    def stash_plugin(self, testbot):
+        stash_plugin = testbot.bot.plugin_manager.get_plugin_obj_by_name('Stash')
+        stash_plugin.config = {
+            'STASH_URL': 'https://my-server.com/stash',
+        }
+
+
+    def test_token(self, testbot):
+        testbot.push_message('!stash token')
+        response = testbot.pop_message()
+        assert 'Stash API Token not configured' in response
+        assert 'https://my-server.com/stash/plugins/servlet/access-tokens/manage' in response
+
+        testbot.push_message('!stash token secret-token')
+        response = testbot.pop_message()
+        assert response == 'Token saved.'
+
+        testbot.push_message('!stash token')
+        response = testbot.pop_message()
+        assert response == 'You API Token is: secret-token (user: fry)'
+
+
+    def test_merge(self, testbot, mock_api):
+        testbot.push_message('!stash merge ASIM-81')
+        response = testbot.pop_message()
+        assert 'Stash API Token not configured' in response
+
+        testbot.push_message('!stash token secret-token')
+        testbot.pop_message()
+
+        testbot.push_message('!stash merge ASIM-81')
+        response = testbot.pop_message()
+        assert response == 'Could not find any branch with text "ASIM-81" in any repositories of the "ESSS" project.'
