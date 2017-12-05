@@ -119,7 +119,7 @@ def ensure_text_matches_unique_branch(plans, branch_text):
             if not error_lines:
                 error_lines.append('More than one branch matches the text `"{}"`:'.format(branch_text))
             names = ', '.join('`{}`'.format(x['displayId']) for x in plan.branches)
-            error_lines.append("* `{slug}`: {names}".format(slug=plan.slug, names=names))
+            error_lines.append("`{slug}`: {names}".format(slug=plan.slug, names=names))
 
     if error_lines:
         error_lines.append("Use a more complete text or remove one of the branches.")
@@ -136,7 +136,7 @@ def ensure_unique_pull_requests(plans, from_branch_display_id):
             if not error_lines:
                 error_lines.append('Multiples PRs for branch `{}` found:'.format(from_branch_display_id))
             links = ['[PR#{id}]({url})'.format(id=x['id'], url=get_self_url(x)) for x in plan.pull_requests]
-            error_lines.append("* `{slug}`: {links}".format(slug=plan.slug, links=', '.join(links)))
+            error_lines.append("`{slug}`: {links}".format(slug=plan.slug, links=', '.join(links)))
     if error_lines:
         error_lines.append('Sorry you will have to sort that mess yourself. :wink:')
         raise CheckError(error_lines)
@@ -162,7 +162,7 @@ def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
             if plan.pull_requests:
                 assert len(plan.pull_requests) == 1
                 pr = plan.pull_requests[0]
-                error_lines.append('* `{slug}`: [PR#{id}]({url}) targets `{to_ref}`'.format(
+                error_lines.append('`{slug}`: [PR#{id}]({url}) targets `{to_ref}`'.format(
                                    slug=plan.slug, id=pr['id'], url=get_self_url(pr), to_ref=pr['toRef']['id']))
 
         error_lines.append('Fix those PRs and try again.')
@@ -211,7 +211,7 @@ def ensure_no_conflicts(api, from_branch, plans):
         if not pull_request.can_merge():
             if not error_lines:
                 error_lines.append('The PRs below for branch `{}` have conflicts:'.format(from_branch))
-            error_lines.append('* `{slug}`: [PR#{id}]({url}) **CONFLICTS**'.format(
+            error_lines.append('`{slug}`: [PR#{id}]({url}) **CONFLICTS**'.format(
                 slug=plan.slug, id=pr_data['id'], url=get_self_url(pr_data)))
 
     if error_lines:

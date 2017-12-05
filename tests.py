@@ -121,7 +121,7 @@ def test_duplicate_branches(mock_api, mocker):
 
     call_merge('ASIM-81', [
         r'More than one branch matches the text `"ASIM-81"`:',
-        r'\* `repo1`: `fb-ASIM-81-network`, `fb-ASIM-81-network-test`',
+        r'`repo1`: `fb-ASIM-81-network`, `fb-ASIM-81-network-test`',
         r'Use a more complete text.*',
     ])
 
@@ -139,7 +139,7 @@ def test_multiples_prs_for_same_branch(mock_api):
 
     call_merge('ASIM-81', [
         r'Multiples PRs for branch `fb-ASIM-81-network` found:',
-        r'\* `repo1`: \[PR#10\]\(url.com/for/10\), \[PR#12\]\(url.com/for/12\)',
+        r'`repo1`: \[PR#10\]\(url.com/for/10\), \[PR#12\]\(url.com/for/12\)',
         r'Sorry you will have to sort that mess yourself. :wink:',
     ])
 
@@ -156,8 +156,8 @@ def test_prs_with_different_targets(mock_api):
 
     call_merge('ASIM-81', [
         r'PRs in repositories for branch `fb-ASIM-81-network` have different targets:',
-        r'\* `repo1`: \[PR#10\]\(url.com/for/10\) targets `refs/heads/features`',
-        r'\* `repo3`: \[PR#17\]\(url.com/for/17\) targets `refs/heads/master`',
+        r'`repo1`: \[PR#10\]\(url.com/for/10\) targets `refs/heads/features`',
+        r'`repo3`: \[PR#17\]\(url.com/for/17\) targets `refs/heads/master`',
         r'Fix those PRs and try again.'
     ])
 
@@ -185,7 +185,7 @@ def test_merge_conflicts(mock_api):
     }
     call_merge('ASIM-81', [
         r'The PRs below for branch `fb-ASIM-81-network` have conflicts:',
-        r'\* `repo3`: \[PR#10\]\(url.com/for/10\) \*\*CONFLICTS\*\*',
+        r'`repo3`: \[PR#10\]\(url.com/for/10\) \*\*CONFLICTS\*\*',
         r'Fix the conflicts and try again. :wink:',
     ])
     assert mock_api['repo3']['pull_request']['10'].merged_version is None
