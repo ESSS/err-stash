@@ -1,6 +1,7 @@
 **1.1.1**
 
 - Add `STASH_PROJECTS` to configuration template variable.
+- Change `STASH_PROJECTS` defaults to `None`.
 
 **1.1.0**
 

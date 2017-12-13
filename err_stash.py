@@ -268,7 +268,7 @@ class StashBot(BotPlugin):
     def get_configuration_template(self):
         return {
             'STASH_URL': 'https://eden.esss.com.br/stash',
-            'STASH_PROJECTS': [],
+            'STASH_PROJECTS': None,
         }
 
     def load_user_settings(self, user):
