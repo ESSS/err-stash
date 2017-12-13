@@ -268,6 +268,7 @@ class StashBot(BotPlugin):
     def get_configuration_template(self):
         return {
             'STASH_URL': 'https://eden.esss.com.br/stash',
+            'STASH_PROJECTS': [],
         }
 
     def load_user_settings(self, user):
@@ -317,7 +318,7 @@ class StashBot(BotPlugin):
             return self.stash_token(msg, [])
         projects = self.config['STASH_PROJECTS']
         if not projects:
-            return 'STASH_PROJECTS not configured. Use `!plugin config Stash` to configure it.'
+            return '`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it.'
         try:
             lines = list(merge(self.config['STASH_URL'], projects, username=user, password=settings['token'],
                                branch_text=branch_text, confirm=True))
