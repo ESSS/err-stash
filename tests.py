@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 import pytest
 import stashy
+import stashy.errors
 
 from err_stash import merge, StashAPI, CheckError
 
@@ -89,7 +90,10 @@ def mock_api(mocker):
         for (i_from_branch, i_to_branch), commits in projects[project][slug].get('commits', {}).items():
             if from_branch in i_from_branch and to_branch in i_to_branch:
                 return commits
-        return []
+        response = mocker.MagicMock()
+        msg = 'fetch_repo_commits: {} {} {} {}'.format(project, slug, from_branch, to_branch)
+        response.json.return_value = dict(errors=[dict(message=msg)])
+        raise stashy.errors.NotFoundException(response=response)
 
     mocker.patch.object(StashAPI, 'fetch_repo_commits', autospec=True, side_effect=mock_fetch_repo_commits)
 
@@ -188,6 +192,14 @@ def test_branch_commits_without_pr(mock_api):
         r'These repositories have commits in `fb-ASIM-81-network` but no PRs:',
         r'`repo1`: \*\*1 commit\*\* \(\[create PR\]\({pr_link}\)\)'.format(pr_link=pr_link),
         r'You need to create PRs for your changes before merging this branch.',
+    ])
+
+
+def test_branch_missing(mock_api):
+    mock_api['PROJ-A']['repo1']['branches'] = []
+    call_merge('ASIM-81', [
+        r'Branch `fb-ASIM-81-network` merged into `refs/heads/master`! :white_check_mark:',
+        r'Branch deleted from repositories: `repo3`',
     ])
 
 
