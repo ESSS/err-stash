@@ -14,43 +14,39 @@ class StashAPI:
     We have this thin layer in order to mock it during testing.
     """
 
-    def __init__(self, url, project, *, username, password):
+    def __init__(self, url, *, username, password):
         self._stash = stashy.connect(url, username=username, password=password)
-        self._project = project
         self._url = url
-
-    @property
-    def project(self):
-        return self._project
 
     @property
     def url(self):
         return self._url
 
-    def fetch_repos(self):
-        return self._stash.projects[self._project].repos.list()
+    def fetch_repos(self, project):
+        return self._stash.projects[project].repos.list()
 
-    def fetch_branches(self, slug, filter_text):
-        return self._stash.projects[self._project].repos[slug].branches(filterText=filter_text)
+    def fetch_branches(self, project, slug, filter_text):
+        return self._stash.projects[project].repos[slug].branches(filterText=filter_text)
 
-    def delete_branch(self, slug, branch):
-        return self._stash.projects[self._project].repos[slug].delete_branch(branch)
+    def delete_branch(self, project, slug, branch):
+        return self._stash.projects[project].repos[slug].delete_branch(branch)
 
-    def fetch_pull_requests(self, slug):
-        return self._stash.projects[self._project].repos[slug].pull_requests.all()
+    def fetch_pull_requests(self, project, slug):
+        return self._stash.projects[project].repos[slug].pull_requests.all()
 
-    def fetch_pull_request(self, slug, pr_id):
-        return self._stash.projects[self._project].repos[slug].pull_requests[pr_id]
+    def fetch_pull_request(self, project, slug, pr_id):
+        return self._stash.projects[project].repos[slug].pull_requests[pr_id]
 
-    def fetch_repo_commits(self, slug, until, since):
-        return self._stash.projects[self._project].repos[slug].commits(until, since)
+    def fetch_repo_commits(self, project, slug, until, since):
+        return self._stash.projects[project].repos[slug].commits(until, since)
 
 
 class MergePlan:
     """
     Contains information about branch and PRs that will be involved in a merge operation.
     """
-    def __init__(self, slug):
+    def __init__(self, project, slug):
+        self.project = project
         self.slug = slug
         self.branches = []
         self.pull_requests = []
@@ -76,33 +72,36 @@ class CheckError(Exception):
         self.lines = lines
 
 
-def create_plans(api, branch_text):
+def create_plans(api, projects, branch_text):
     """
     Go over all the branches in all repositories searching for branches and PRs that match the given branch text.
 
     :rtype: List[MergePlan]
     """
-    repos = api.fetch_repos()
+    repos = []
+    for project in projects:
+        repos += api.fetch_repos(project)
     plans = []
     has_prs = False
     for repo in repos:
         slug = repo['slug']
-        branches = list(api.fetch_branches(slug, branch_text))
+        project = repo['project']['key']
+        branches = list(api.fetch_branches(project, slug, branch_text))
         if branches:
-            plan = MergePlan(slug)
+            plan = MergePlan(project, slug)
             plans.append(plan)
             plan.branches = branches
             branch_ids = [x['id'] for x in plan.branches]
-            prs = list(api.fetch_pull_requests(slug))
+            prs = list(api.fetch_pull_requests(project, slug))
             for pr in prs:
                 has_prs = True
                 if pr['fromRef']['id'] in branch_ids:
                     plan.pull_requests.append(pr)
 
     if not plans:
-        raise CheckError('Could not find any branch with text `"{}"` in any repositories of the `"{}"` project.'.format(
+        raise CheckError('Could not find any branch with text `"{}"` in any repositories of projects {}.'.format(
             branch_text,
-            api.project,
+            ', '.join('`{}`'.format(x) for x in projects),
         ))
 
     if not has_prs:
@@ -171,11 +170,11 @@ def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
     return result
 
 
-def make_pr_link(api, slug, from_branch, to_branch):
+def make_pr_link(api, project, slug, from_branch, to_branch):
     """Generates a URL that can be used to create a PR"""
     from urllib.parse import urlencode
     params = OrderedDict([('sourceBranch', from_branch), ('targetBranch', to_branch)])
-    base_url = '{url}/projects/{project}/repos/{slug}/compare/commits?'.format(url=api.url, project=api.project,
+    base_url = '{url}/projects/{project}/repos/{slug}/compare/commits?'.format(url=api.url, project=project,
                                                                                slug=slug)
     return base_url + urlencode(params)
 
@@ -185,11 +184,11 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch, to_
     error_lines = []
     result = []
     for plan in plans:
-        commits = list(api.fetch_repo_commits(plan.slug, from_branch, to_branch))
+        commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
         if commits and not plan.pull_requests:
             if not error_lines:
                 error_lines.append('These repositories have commits in `{}` but no PRs:'.format(from_branch))
-            pr_link = make_pr_link(api, plan.slug, from_branch, to_branch)
+            pr_link = make_pr_link(api, plan.project, plan.slug, from_branch, to_branch)
             error_lines.append('`{slug}`: **{commits_text}** ([create PR]({pr_link}))'.format(
                 slug=plan.slug, commits_text=commits_text(commits), pr_link=pr_link))
         if commits:
@@ -207,7 +206,7 @@ def ensure_no_conflicts(api, from_branch, plans):
     error_lines = []
     for plan in plans:
         pr_data = plan.pull_requests[0]
-        pull_request = api.fetch_pull_request(plan.slug, pr_data['id'])
+        pull_request = api.fetch_pull_request(plan.project, plan.slug, pr_data['id'])
         if not pull_request.can_merge():
             if not error_lines:
                 error_lines.append('The PRs below for branch `{}` have conflicts:'.format(from_branch))
@@ -219,21 +218,21 @@ def ensure_no_conflicts(api, from_branch, plans):
         raise CheckError(error_lines)
 
 
-def merge(url, project, username, password, branch_text, confirm):
+def merge(url, projects, username, password, branch_text, confirm):
     """
     Merges PRs in repositories which match a given branch name, performing various checks beforehand.
 
     :param str url: URL to stash server.
-    :param str project: Stash project name
+    :param list[str] projects: List of Stash project keys to search branches
     :param str username: username
     :param str password: password or access token (write access).
     :param str branch_text: complete or partial branch name to search for
     :param bool confirm: if True, perform the merge, otherwise just print what would happen.
     :raise CheckError: if a check for merging-readiness fails.
     """
-    api = StashAPI(url, project, username=username, password=password)
+    api = StashAPI(url, username=username, password=password)
 
-    plans = create_plans(api, branch_text)
+    plans = create_plans(api, projects, branch_text)
     from_branch = ensure_text_matches_unique_branch(plans, branch_text)
     ensure_unique_pull_requests(plans, from_branch)
     to_branch_id = ensure_pull_requests_target_same_branch(plans, from_branch)
@@ -244,7 +243,7 @@ def merge(url, project, username, password, branch_text, confirm):
     yield 'Branch `{}` merged into `{}`! :white_check_mark:'.format(from_branch, to_branch_id)
     shown = set()
     for plan, commits in plans_and_commits:
-        pull_request = api.fetch_pull_request(plan.slug, plan.pull_requests[0]['id'])
+        pull_request = api.fetch_pull_request(plan.project, plan.slug, plan.pull_requests[0]['id'])
         if confirm:
             # https://confluence.atlassian.com/bitbucketserverkb/bitbucket-server-rest-api-for-merging-pull-request-fails-792309002.html
             pull_request.merge(version=plan.pull_requests[0]['version'])
@@ -256,7 +255,7 @@ def merge(url, project, username, password, branch_text, confirm):
 
     for plan in plans:
         if confirm:
-            api.delete_branch(plan.slug, plan.branches[0]['id'])
+            api.delete_branch(plan.project, plan.slug, plan.branches[0]['id'])
     repo_list = ['`{}`'.format(p.slug) for p in plans]
     yield 'Branch deleted from repositories: {}'.format(', '.join(repo_list))
     if not confirm:
@@ -287,6 +286,12 @@ class StashBot(BotPlugin):
         self.log.debug('SAVE ({}) settings: {}'.format(user, settings))
 
 
+    @botcmd
+    def stash_version(self, msg, args):
+        """Get current version and CHANGELOG"""
+        return Path(__file__).parent.joinpath('CHANGELOG.md').read_text()
+
+
     @botcmd(split_args_with=None)
     def stash_token(self, msg, args):
         """Set or get your Stash token"""
@@ -304,15 +309,17 @@ class StashBot(BotPlugin):
 
 
     @arg_botcmd('branch_text', help='Branch name to merge')
-    @arg_botcmd('--project', dest='project', default='ESSS', help='Name of the Stash project to search')
-    def stash_merge(self, msg, branch_text, project):
+    def stash_merge(self, msg, branch_text):
         """Merges PRs related to a branch (which can be a partial match)"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not settings['token']:
             return self.stash_token(msg, [])
+        projects = self.config['STASH_PROJECTS']
+        if not projects:
+            return 'STASH_PROJECTS not configured. Use `!plugin config Stash` to configure it.'
         try:
-            lines = list(merge(self.config['STASH_URL'], project, username=user, password=settings['token'],
+            lines = list(merge(self.config['STASH_URL'], projects, username=user, password=settings['token'],
                                branch_text=branch_text, confirm=True))
         except CheckError as e:
             lines = e.lines
@@ -350,13 +357,13 @@ def main(args):
     parser = argparse.ArgumentParser(description='Merge multiples branches.')
     parser.add_argument('-u', '--username', default=default_user)
     parser.add_argument('-p', '--password', default=default_password)
-    parser.add_argument('--project', default='ESSS')
     parser.add_argument('--confirm', default=False, action='store_true')
-    parser.add_argument('text')
+    parser.add_argument('text', help='Branch text (possibly partial) to search for')
+    parser.add_argument('projects', help='list of Stash projects to search branches, separated by commas')
 
     options = parser.parse_args(args)
     try:
-        lines = list(merge("https://eden.esss.com.br/stash", options.project, username=options.username,
+        lines = list(merge("https://eden.esss.com.br/stash", options.projects.split(','), username=options.username,
                            password=options.password, branch_text=options.text, confirm=options.confirm))
         result = 0
     except CheckError as e:
