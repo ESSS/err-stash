@@ -4,6 +4,7 @@ from configparser import ConfigParser
 from pathlib import Path
 
 import stashy
+import stashy.errors
 from errbot import BotPlugin, botcmd, arg_botcmd
 
 
@@ -184,7 +185,10 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch, to_
     error_lines = []
     result = []
     for plan in plans:
-        commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
+        try:
+            commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
+        except stashy.errors.NotFoundException:
+            commits = []
         if commits and not plan.pull_requests:
             if not error_lines:
                 error_lines.append('These repositories have commits in `{}` but no PRs:'.format(from_branch))

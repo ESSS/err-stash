@@ -1,3 +1,7 @@
+**1.1.2**
+
+- Fix bug where the fact that a PROJECT might not have a REPOSITORY/BRANCH generated an error.
+
 **1.1.1**
 
 - Add `STASH_PROJECTS` to configuration template variable.
