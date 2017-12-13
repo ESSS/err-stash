@@ -286,6 +286,12 @@ class StashBot(BotPlugin):
         self.log.debug('SAVE ({}) settings: {}'.format(user, settings))
 
 
+    @botcmd
+    def stash_version(self, msg, args):
+        """Get current version and CHANGELOG"""
+        return Path(__file__).parent.joinpath('CHANGELOG.md').read_text()
+
+
     @botcmd(split_args_with=None)
     def stash_token(self, msg, args):
         """Set or get your Stash token"""

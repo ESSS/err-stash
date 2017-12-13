@@ -288,3 +288,9 @@ class TestBot:
             'Could not find any branch with text "ASIM-81" in any repositories '
             'of projects PROJ-A, PROJ-B, PROJ-FOO.'
         )
+
+
+    def test_version(self, testbot):
+        testbot.push_message('!stash version')
+        response = testbot.pop_message()
+        assert '1.0.0' in response
