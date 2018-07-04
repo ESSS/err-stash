@@ -292,13 +292,13 @@ class StashBot(BotPlugin):
 
 
     @botcmd
-    def stash_version(self, msg, args):
+    def version(self, msg, args):
         """Get current version and CHANGELOG"""
         return Path(__file__).parent.joinpath('CHANGELOG.md').read_text()
 
 
     @botcmd(split_args_with=None)
-    def stash_token(self, msg, args):
+    def token(self, msg, args):
         """Set or get your Stash token"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
@@ -316,12 +316,12 @@ class StashBot(BotPlugin):
 
 
     @arg_botcmd('branch_text', help='Branch name to merge')
-    def stash_merge(self, msg, branch_text):
+    def merge(self, msg, branch_text):
         """Merges PRs related to a branch (which can be a partial match)"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not settings['token']:
-            return self.stash_token(msg, [])
+            return self.token(msg, [])
         projects = self.config['STASH_PROJECTS']
         if not projects:
             return '`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it.'
