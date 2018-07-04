@@ -302,6 +302,8 @@ class StashBot(BotPlugin):
         """Set or get your Stash token"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
+        if not self.config:
+            return 'Stash plugin not configured, contact an admin.'
         if not args:
             if settings['token']:
                 return "You API Token is: `{}` (user: {})".format(settings['token'], user)

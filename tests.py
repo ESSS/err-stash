@@ -269,9 +269,16 @@ class TestBot:
             'STASH_URL': 'https://my-server.com/stash',
             'STASH_PROJECTS': ['PROJ-A', 'PROJ-B', 'PROJ-FOO'],
         }
+        return stash_plugin
 
 
-    def test_token(self, testbot):
+    def test_token(self, testbot, stash_plugin, monkeypatch):
+        monkeypatch.setattr(stash_plugin, 'config', None)
+        testbot.push_message('!stash token')
+        response = testbot.pop_message()
+        assert 'Stash plugin not configured, contact an admin.' in response
+
+        monkeypatch.undo()
         testbot.push_message('!stash token')
         response = testbot.pop_message()
         assert 'Stash API Token not configured' in response
