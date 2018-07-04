@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 default.ini
+/plugins/
+/data/
+config.py
+errbot.log
