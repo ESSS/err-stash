@@ -298,7 +298,7 @@ class StashBot(BotPlugin):
 
 
     @botcmd(split_args_with=None)
-    def token(self, msg, args):
+    def stash_token(self, msg, args):
         """Set or get your Stash token"""
         user = msg.frm.nick
         settings = self.load_user_settings(user)
@@ -321,7 +321,7 @@ class StashBot(BotPlugin):
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not settings['token']:
-            return self.token(msg, [])
+            return self.stash_token(msg, [])
         projects = self.config['STASH_PROJECTS']
         if not projects:
             return '`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it.'
