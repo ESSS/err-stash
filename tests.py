@@ -274,21 +274,21 @@ class TestBot:
 
     def test_token(self, testbot, stash_plugin, monkeypatch):
         monkeypatch.setattr(stash_plugin, 'config', None)
-        testbot.push_message('!token')
+        testbot.push_message('!stash token')
         response = testbot.pop_message()
         assert 'Stash plugin not configured, contact an admin.' in response
 
         monkeypatch.undo()
-        testbot.push_message('!token')
+        testbot.push_message('!stash token')
         response = testbot.pop_message()
         assert 'Stash API Token not configured' in response
         assert 'https://my-server.com/stash/plugins/servlet/access-tokens/manage' in response
 
-        testbot.push_message('!token secret-token')
+        testbot.push_message('!stash token secret-token')
         response = testbot.pop_message()
         assert response == 'Token saved.'
 
-        testbot.push_message('!token')
+        testbot.push_message('!stash token')
         response = testbot.pop_message()
         assert response == 'You API Token is: secret-token (user: fry)'
 
@@ -298,7 +298,7 @@ class TestBot:
         response = testbot.pop_message()
         assert 'Stash API Token not configured' in response
 
-        testbot.push_message('!token secret-token')
+        testbot.push_message('!stash token secret-token')
         testbot.pop_message()
 
         testbot.push_message('!merge ASIM-81')
