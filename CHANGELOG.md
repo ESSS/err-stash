@@ -1,3 +1,7 @@
+**1.2.0**
+
+- Implement `--force` option to merge PRs with different target branches.
+
 **1.1.2**
 
 - Fix bug where the fact that a PROJECT might not have a REPOSITORY/BRANCH generated an error.
