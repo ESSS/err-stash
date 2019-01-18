@@ -230,6 +230,14 @@ def ensure_no_conflicts(api, from_branch, plans):
         raise CheckError(error_lines)
 
 
+def ensure_has_pull_request(plans):
+    message = """
+    No pull request open for this branch!
+    """
+    if not any(plan for plan in plans if plan.to_branch):
+        raise CheckError(message)
+
+
 def merge(url, projects, username, password, branch_text, confirm, force=False):
     """
     Merges PRs in repositories which match a given branch name, performing various checks beforehand.
@@ -248,9 +256,9 @@ def merge(url, projects, username, password, branch_text, confirm, force=False):
     plans = create_plans(api, projects, branch_text)
     from_branch = ensure_text_matches_unique_branch(plans, branch_text)
     ensure_unique_pull_requests(plans, from_branch)
+    ensure_has_pull_request(plans)
     if not force:
         ensure_pull_requests_target_same_branch(plans, from_branch)
-    assert [True for plan in plans if plan.to_branch], 'No pull requests! What to do?'
     plans_and_commits = get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch)
     ensure_no_conflicts(api, from_branch, [plan for (plan, _) in plans_and_commits])
 
