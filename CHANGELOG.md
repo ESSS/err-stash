@@ -1,3 +1,7 @@
+**1.3.0**
+
+- Modify merge message to be easier to know the target branch.
+
 **1.2.0**
 
 - Implement `--force` option to merge PRs with different target branches.

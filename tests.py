@@ -201,7 +201,8 @@ def test_branch_commits_without_pr(mock_api):
 def test_branch_missing(mock_api):
     mock_api['PROJ-A']['repo1']['branches'] = []
     call_merge('ASIM-81', [
-        r'Branch `fb-ASIM-81-network` merged into `refs/heads/master`! :white_check_mark:',
+        r'Branch `fb-ASIM-81-network` merged into:',
+        r':white_check_mark: `repo3` **2 commits** -> `master`',
         r'Branch deleted from repositories: `repo3`',
     ])
 
@@ -221,8 +222,8 @@ def test_merge_conflicts(mock_api):
 def test_merge_success(mock_api):
     pull_request = mock_api['PROJ-B']['repo3']['pull_request']['10']
     call_merge('ASIM-81', [
-        r'Branch `fb-ASIM-81-network` merged into `refs/heads/master`! :white_check_mark:',
-        r':white_check_mark: `repo3` \*\*2 commits\*\*',
+        r'Branch `fb-ASIM-81-network` merged into:',
+        r':white_check_mark: `repo3` **2 commits** -> `master`',
         r'`repo1` - (no changes)',
         r'Branch deleted from repositories: `repo1`, `repo3`'
     ])
@@ -253,9 +254,9 @@ def test_prs_with_different_targets_force_merge(mock_api):
     }
 
     call_merge('ASIM-81', [
-        r'Branch `fb-ASIM-81-network` merged into `refs/heads/features, refs/heads/master`! :white_check_mark:',
-        r':white_check_mark: `repo1` \*\*2 commits\*\*',
-        r':white_check_mark: `repo3` \*\*2 commits\*\*',
+        r'Branch `fb-ASIM-81-network` merged into:',
+        r':white_check_mark: `repo1` **2 commits** -> `features`',
+        r':white_check_mark: `repo3` **2 commits** -> `master`',
         r'Branch deleted from repositories: `repo1`, `repo3`'
     ], force=True)
 
