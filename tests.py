@@ -88,6 +88,8 @@ def mock_api(mocker):
 
     def mock_fetch_repo_commits(self, project, slug, from_branch, to_branch):
         for (i_from_branch, i_to_branch), commits in projects[project][slug].get('commits', {}).items():
+            if not to_branch and commits:
+                return commits
             if from_branch in i_from_branch and to_branch in i_to_branch:
                 return commits
         response = mocker.MagicMock()
@@ -108,10 +110,10 @@ def mock_api(mocker):
     return projects
 
 
-def call_merge(branch_text, matching_lines):
+def call_merge(branch_text, matching_lines, force=False):
     try:
         lines = list(merge('https://myserver.com/stash', ['PROJ-A', 'PROJ-B'], username='fry', password='PASSWORD123',
-                           branch_text=branch_text, confirm=True))
+                           branch_text=branch_text, confirm=True, force=force))
     except CheckError as e:
         lines = e.lines
     from _pytest.pytester import LineMatcher
@@ -174,7 +176,8 @@ def test_prs_with_different_targets(mock_api):
         r'PRs in repositories for branch `fb-ASIM-81-network` have different targets:',
         r'`repo1`: \[PR#10\]\(url.com/for/10\) targets `refs/heads/features`',
         r'`repo3`: \[PR#17\]\(url.com/for/17\) targets `refs/heads/master`',
-        r'Fix those PRs and try again.'
+        r'Fix those PRs and try again.',
+        r'Alternately you can pass `--force` to force the merge with different targets!'
     ])
 
 
@@ -235,6 +238,28 @@ def test_merge_success(mock_api):
     ]
 
 
+def test_prs_with_different_targets_force_merge(mock_api):
+    mock_api['PROJ-A']['repo1']['commits'] = {
+        ('refs/heads/fb-ASIM-81-network', 'refs/heads/features'): ['C', 'D'],
+    }
+    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+                                                         fromRef=dict(id='refs/heads/fb-ASIM-81-network'),
+                                                         toRef=dict(id='refs/heads/features'),
+                                                         displayId='fb-ASIM-81-network',
+                                                         links=make_link('url.com/for/10'),
+                                                         version='10')]
+    mock_api['PROJ-A']['repo1']['pull_request'] = {
+        '10': DummyPullRequest(True),
+    }
+
+    call_merge('ASIM-81', [
+        r'Branch `fb-ASIM-81-network` merged into `refs/heads/features, refs/heads/master`! :white_check_mark:',
+        r':white_check_mark: `repo1` \*\*2 commits\*\*',
+        r':white_check_mark: `repo3` \*\*2 commits\*\*',
+        r'Branch deleted from repositories: `repo1`, `repo3`'
+    ], force=True)
+
+
 def test_no_pull_requests(mock_api):
     del mock_api['PROJ-B']['repo3']['pull_requests']
     call_merge('ASIM-81', [
@@ -261,7 +286,6 @@ class TestBot:
         testbot.bot.sender = TestPerson('fry@localhost', nick='fry')
         return testbot
 
-
     @pytest.fixture(autouse=True)
     def stash_plugin(self, testbot):
         stash_plugin = testbot.bot.plugin_manager.get_plugin_obj_by_name('Stash')
@@ -270,7 +294,6 @@ class TestBot:
             'STASH_PROJECTS': ['PROJ-A', 'PROJ-B', 'PROJ-FOO'],
         }
         return stash_plugin
-
 
     def test_token(self, testbot, stash_plugin, monkeypatch):
         monkeypatch.setattr(stash_plugin, 'config', None)
@@ -292,7 +315,6 @@ class TestBot:
         response = testbot.pop_message()
         assert response == 'You API Token is: secret-token (user: fry)'
 
-
     def test_merge(self, testbot, mock_api):
         testbot.push_message('!merge ASIM-81')
         response = testbot.pop_message()
@@ -307,7 +329,6 @@ class TestBot:
             'Could not find any branch with text "ASIM-81" in any repositories '
             'of projects PROJ-A, PROJ-B, PROJ-FOO.'
         )
-
 
     def test_version(self, testbot):
         testbot.push_message('!version')
