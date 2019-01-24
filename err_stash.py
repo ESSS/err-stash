@@ -188,9 +188,11 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
     """Returns a summary of the commits in each PR that will be merged"""
     error_lines = []
     result = []
+    default_branch = "refs/heads/master"
     for plan in plans:
         try:
-            commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, plan.to_branch))
+            to_branch = plan.to_branch if plan.to_branch else default_branch
+            commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
         except stashy.errors.NotFoundException:
             commits = []
         if commits and not plan.pull_requests:
@@ -200,7 +202,7 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
                                    plan.project,
                                    plan.slug,
                                    from_branch,
-                                   next(plan.to_branch for plan in plans if plan.to_branch is not None))
+                                   default_branch)
             error_lines.append('`{slug}`: **{commits_text}** ([create PR]({pr_link}))'.format(
                 slug=plan.slug, commits_text=commits_text(commits), pr_link=pr_link))
         if commits:
