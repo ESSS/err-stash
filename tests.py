@@ -88,8 +88,6 @@ def mock_api(mocker):
 
     def mock_fetch_repo_commits(self, project, slug, from_branch, to_branch):
         for (i_from_branch, i_to_branch), commits in projects[project][slug].get('commits', {}).items():
-            if not to_branch and commits:
-                return commits
             if from_branch in i_from_branch and to_branch in i_to_branch:
                 return commits
         response = mocker.MagicMock()
@@ -335,3 +333,5 @@ class TestBot:
         testbot.push_message('!version')
         response = testbot.pop_message()
         assert '1.0.0' in response
+
+
