@@ -1,3 +1,7 @@
+**1.3.2**
+
+- Bug fix when try to merge branch to other than `master`.
+
 **1.3.1**
 
 - Bug fix when try to merge branches and one of them does not have PR open.
