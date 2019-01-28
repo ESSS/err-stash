@@ -308,8 +308,6 @@ def test_merge_default_branch(mock_api):
     ])
 
 
-
-
 class TestBot:
     """Tests for the bot commands"""
 
