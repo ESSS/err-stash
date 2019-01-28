@@ -190,13 +190,13 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
     result = []
     default_branch = next(plan.to_branch for plan in plans if plan.to_branch)
     for plan in plans:
+        if plan.to_branch:
+            to_branch = plan.to_branch
+        elif list(api.fetch_branches(plan.project, plan.slug, default_branch.replace("refs/heads/", ""))):
+            to_branch = default_branch
+        else:
+            to_branch = "refs/heads/master"
         try:
-            if plan.to_branch:
-                to_branch = plan.to_branch
-            elif list(api.fetch_branches(plan.project, plan.slug, default_branch.replace("refs/heads/", ""))):
-                to_branch = default_branch
-            else:
-                to_branch = "refs/heads/master"
             commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
         except stashy.errors.NotFoundException:
             commits = []
@@ -207,7 +207,7 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
                                    plan.project,
                                    plan.slug,
                                    from_branch,
-                                   default_branch)
+                                   to_branch)
             error_lines.append('`{slug}`: **{commits_text}** ([create PR]({pr_link}))'.format(
                 slug=plan.slug, commits_text=commits_text(commits), pr_link=pr_link))
         if commits:

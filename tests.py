@@ -304,7 +304,8 @@ def test_merge_default_branch(mock_api):
         r'Branch `fb-SSRL-1890-py3` merged into:',
         r':white_check_mark: `repo1` **2 commits** -> `target_branch`',
         r'`repo2` - (no changes)',
-        r'Branch deleted from repositories: `repo1`, `repo2`'
+        r'`repo3` - (no changes)',
+        r'Branch deleted from repositories: `repo1`, `repo2`, `repo3`'
     ])
 
 
