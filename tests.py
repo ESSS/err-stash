@@ -276,6 +276,39 @@ pytest_plugins = ["errbot.backends.test"]
 extra_plugin_dir = '.'
 
 
+def test_merge_default_branch(mock_api):
+    from_branch = "fb-SSRL-1890-py3"
+    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+                                                         fromRef=dict(id="refs/heads/" + from_branch),
+                                                         toRef=dict(id='refs/heads/target_branch'),
+                                                         displayId=from_branch,
+                                                         links=make_link('url.com/for/10'),
+                                                         version='10')]
+    mock_api['PROJ-A']['repo1']['pull_request'] = {
+        '10': DummyPullRequest(True),
+    }
+    mock_api['PROJ-A']['repo1']['commits'] = {
+        ("refs/heads/" + from_branch, 'refs/heads/target_branch'): ['A', 'B'],
+    }
+
+    mock_api['PROJ-B']['repo3']['branches'].append(
+        dict(id='refs/heads/target_branch', displayId='target_branch'),
+    )
+
+    mock_api['PROJ-B']['repo3']['commits'] = {
+        ("refs/heads/" + from_branch, 'refs/heads/master'): ['C', 'D'],
+    }
+
+
+    call_merge(from_branch, [
+        r'Branch `fb-SSRL-1890-py3` merged into:',
+        r':white_check_mark: `repo1` **2 commits** -> `target_branch`',
+        r'`repo2` - (no changes)',
+        r'`repo3` - (no changes)',
+        r'Branch deleted from repositories: `repo1`, `repo2`, `repo3`'
+    ])
+
+
 class TestBot:
     """Tests for the bot commands"""
 
