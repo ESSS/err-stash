@@ -47,10 +47,10 @@ class MergePlan:
     Contains information about branch and PRs that will be involved in a merge operation.
     """
 
-    def __init__(self, project, slug):
+    def __init__(self, project, slug, branches):
         self.project = project
         self.slug = slug
-        self.branches = []
+        self.branches = branches
         self.pull_requests = []
         self.to_branch = None
 
@@ -92,9 +92,8 @@ def create_plans(api, projects, branch_text):
         project = repo['project']['key']
         branches = list(api.fetch_branches(project, slug, branch_text))
         if branches:
-            plan = MergePlan(project, slug)
+            plan = MergePlan(project, slug, branches)
             plans.append(plan)
-            plan.branches = branches
             branch_ids = [x['id'] for x in plan.branches]
             prs = list(api.fetch_pull_requests(project, slug))
             for pr in prs:
@@ -188,9 +187,16 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
     """Returns a summary of the commits in each PR that will be merged"""
     error_lines = []
     result = []
+    default_branch = next(plan.to_branch for plan in plans if plan.to_branch)
     for plan in plans:
         try:
-            commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, plan.to_branch))
+            if plan.to_branch:
+                to_branch = plan.to_branch
+            elif list(api.fetch_branches(plan.project, plan.slug, default_branch.replace("refs/heads/", ""))):
+                to_branch = default_branch
+            else:
+                to_branch = "refs/heads/master"
+            commits = list(api.fetch_repo_commits(plan.project, plan.slug, from_branch, to_branch))
         except stashy.errors.NotFoundException:
             commits = []
         if commits and not plan.pull_requests:
@@ -200,7 +206,7 @@ def get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch):
                                    plan.project,
                                    plan.slug,
                                    from_branch,
-                                   next(plan.to_branch for plan in plans if plan.to_branch is not None))
+                                   default_branch)
             error_lines.append('`{slug}`: **{commits_text}** ([create PR]({pr_link}))'.format(
                 slug=plan.slug, commits_text=commits_text(commits), pr_link=pr_link))
         if commits:
@@ -262,15 +268,15 @@ def merge(url, projects, username, password, branch_text, confirm, force=False):
     plans_and_commits = get_commits_about_to_be_merged_by_pull_requests(api, plans, from_branch)
     ensure_no_conflicts(api, from_branch, [plan for (plan, _) in plans_and_commits])
 
-    yield 'Branch `{}` merged into `{}`! :white_check_mark:'.format(from_branch, ', '.join(
-        plan.to_branch for plan in plans if plan.to_branch))
+    yield 'Branch `{}` merged into:'.format(from_branch)
     shown = set()
     for plan, commits in plans_and_commits:
         pull_request = api.fetch_pull_request(plan.project, plan.slug, plan.pull_requests[0]['id'])
         if confirm:
             # https://confluence.atlassian.com/bitbucketserverkb/bitbucket-server-rest-api-for-merging-pull-request-fails-792309002.html
             pull_request.merge(version=plan.pull_requests[0]['version'])
-        yield ':white_check_mark: `{}` **{}**'.format(plan.slug, commits_text(commits))
+        yield ':white_check_mark: `{}` **{}** -> `{}`'.format(plan.slug, commits_text(commits),
+                                                              plan.to_branch.replace('refs/heads/', ''))
         shown.add(plan.slug)
     other_plans = (p for p in plans if p.slug not in shown)
     for plan in other_plans:
@@ -331,6 +337,7 @@ class StashBot(BotPlugin):
             self.save_user_settings(user, settings)
             return "Token saved."
 
+    @arg_botcmd('--force', action="store_true", help='If set, won\'t check target branch names')
     @arg_botcmd('branch_text', help='Branch name to merge')
     def merge(self, msg, branch_text, force=False):
         """Merges PRs related to a branch (which can be a partial match)"""
