@@ -5,7 +5,7 @@ import pytest
 import stashy
 import stashy.errors
 
-from err_stash import merge, StashAPI, CheckError
+from err_stash import GithubAPI, merge, StashAPI, CheckError, create_plans
 
 
 class DummyPullRequest:
@@ -110,8 +110,18 @@ def mock_api(mocker):
 
 def call_merge(branch_text, matching_lines, force=False):
     try:
-        lines = list(merge('https://myserver.com/stash', ['PROJ-A', 'PROJ-B'], username='fry', password='PASSWORD123',
-                           branch_text=branch_text, confirm=True, force=force))
+        lines = list(merge(
+            'https://myserver.com/stash',
+            ['PROJ-A', 'PROJ-B'],
+            stash_username='fry',
+            stash_password='PASSWORD123',
+            github_username_or_token='',
+            github_password='',
+            github_organizations=[],
+            branch_text=branch_text,
+            confirm=True,
+            force=force
+        ))
     except CheckError as e:
         lines = e.lines
     from _pytest.pytester import LineMatcher
@@ -345,7 +355,15 @@ class TestBot:
 
         testbot.push_message('!stash token')
         response = testbot.pop_message()
-        assert response == 'You API Token is: secret-token (user: fry)'
+        assert response == 'Your API Token is: secret-token (user: fry)'
+
+        testbot.push_message('!github token github-secret-token')
+        response = testbot.pop_message()
+        assert response == 'Github token saved.'
+
+        testbot.push_message('!github token')
+        response = testbot.pop_message()
+        assert response == 'Your Github Token is: github-secret-token (user: fry)'
 
     def test_merge(self, testbot, mock_api):
         testbot.push_message('!merge ASIM-81')
@@ -368,3 +386,116 @@ class TestBot:
         assert '1.0.0' in response
 
 
+@pytest.fixture(scope="module")
+def github_api():
+    return GithubAPI()
+
+
+def test_github_fetch_repos(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    repos = ['conda-devenv', 'deps', 'alfasim-sdk']
+    github_mock.get_organization.return_value.get_repos.return_value = repos
+
+    assert github_api.fetch_repos("esss") == repos
+    github_mock.get_organization.assert_called_with('esss')
+
+
+def test_github_fetch_branches(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    github_mock.get_organization.return_value.get_repo.return_value.get_branch.return_value = \
+        'single-branch'
+
+    github_mock.get_organization.return_value.get_repo.return_value.get_branches.return_value = \
+        ['branch-1', 'branch-2', 'branch-3']
+
+    branches = github_api.fetch_branches('esss', 'alfasim-sdk', branch_name='something')
+    assert branches == ['single-branch']
+
+    branches = github_api.fetch_branches('esss', 'alfasim-sdk')
+    assert branches == ['branch-1', 'branch-2', 'branch-3']
+
+
+def test_github_delete_branch(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    git_repo = GitRepo('repo')
+    github_mock.get_organization.return_value.get_repo.return_value = git_repo
+
+    with pytest.raises(AssertionError, match="Trying to delete the wrong branch, check the PR ID."):
+        github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
+
+    git_repo.name = 'fb-a'
+    github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
+
+
+def test_github_fetch_pull_requests(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    github_mock.get_organization.return_value.get_repo.return_value.get_pulls.return_value = [1, 2, 3]
+
+    prs = github_api.fetch_pull_requests('esss', 'jira2latex')
+    github_mock.get_organization.assert_called_with('esss')
+    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
+    assert prs == [1, 2, 3]
+
+
+def test_github_fetch_pull_request(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    github_mock.get_organization.return_value.get_repo.return_value.get_pull.return_value = 'dummy pr'
+
+    pr = github_api.fetch_pull_request('esss', 'jira2latex', 42)
+    github_mock.get_organization.assert_called_with('esss')
+    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
+    assert pr == 'dummy pr'
+
+
+def test_github_fetch_repo_commits(github_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    github_mock.get_organization.return_value.get_repo.return_value.compare.return_value.commits = \
+        [1, 2, 3]
+
+    commits = github_api.fetch_repo_commits('esss', 'jira2latex', 'develop', 'master')
+    assert commits == [1, 2, 3]
+    github_mock.get_organization.assert_called_with('esss')
+    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
+    github_mock.get_organization.return_value.get_repo.return_value.compare.assert_called_with(
+        'master', 'develop')
+
+
+def test_github_create_plans(github_api, mock_api, mocker):
+    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+    github_mock.get_organization.return_value.get_repo.return_value.get_branches.return_value = \
+        ['branch-1', 'branch-2']
+    github_mock.get_organization.return_value.get_repos.return_value = [GitRepo('repo-1'), GitRepo('repo-2')]
+    github_mock.get_organization.return_value.get_repo.return_value.get_pulls.return_value = [GitPR(1), GitPR(2)]
+
+    plans = create_plans(mock_api, github_api, [], ['esss'], 'fb-branch')
+    github_mock.get_organization.assert_called_with('esss')
+
+    assert len(plans) == 2
+    assert [plan.slug for plan in plans] == ['repo-1', 'repo-2']
+    assert [plan.to_branch for plan in plans] == ['master-branch', 'master-branch']
+    assert [len(plan.pull_requests) for plan in plans] == [2, 2]
+
+
+class GitRepo:
+    def __init__(self, name):
+        self.owner = lambda: None
+        self.owner.name = 'esss'
+        self.name = name
+
+    def get_git_ref(self, ref):
+        result = lambda: None
+        result.ref = "heads/{name}".format(name=self.name)
+        result.delete = lambda: None
+        return result
+
+    def get_pull(self, pr_id):
+        return GitPR(pr_id)
+
+class GitPR:
+    def __init__(self, id):
+        self.id = id
+        self.head = lambda : None
+        self.head.ref = 'fb-branch'
+
+        self.base = lambda: None
+        self.base.ref = 'master-branch'
