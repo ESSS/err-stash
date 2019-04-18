@@ -278,7 +278,8 @@ def test_no_pull_requests(mock_api):
 
 def test_no_matching_branch(mock_api):
     call_merge('FOOBAR-81', [
-        r'Could not find any branch with text `"FOOBAR-81"` in any repositories of projects `PROJ-A`, `PROJ-B`.',
+        r'Could not find any branch with text `"FOOBAR-81"` in any repositories of Stash projects: '
+        r'`PROJ-A`, `PROJ-B` nor Github organizations: .',
     ])
 
 
@@ -377,7 +378,7 @@ class TestBot:
         response = testbot.pop_message()
         assert response == (
             'Could not find any branch with text "ASIM-81" in any repositories '
-            'of projects PROJ-A, PROJ-B, PROJ-FOO.'
+            'of Stash projects: PROJ-A, PROJ-B, PROJ-FOO nor Github organizations: .'
         )
 
     def test_version(self, testbot):

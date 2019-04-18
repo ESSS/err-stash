@@ -216,10 +216,13 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
             plan.to_branch = plan.pull_requests[0].base.ref
 
     if not plans:
-        raise CheckError('Could not find any branch with text `"{}"` in any repositories of projects {}.'.format(
-            branch_text,
-            ', '.join('`{}`'.format(x) for x in stash_projects),
-        ))
+        raise CheckError(
+            'Could not find any branch with text `"{}"` in any repositories of Stash projects: {} nor '
+            'Github organizations: {}.'.format(
+                branch_text,
+                ', '.join('`{}`'.format(x) for x in stash_projects),
+                ', '.join('`{}`'.format(x) for x in github_organizations),)
+        )
 
     if not has_prs:
         raise CheckError('No PRs are open with text `"{}"`'.format(branch_text))
