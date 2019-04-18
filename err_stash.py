@@ -60,6 +60,18 @@ class GithubAPI:
         return list(self._github.get_organization(organization).get_repos())
 
     def fetch_branches(self, organization:str, repo_name:str, *, branch_name:str=''):
+        """
+        Returns a list of branches based on organization and name of the repository.
+
+        :param str organization:
+            Name of the Github orgnization.
+
+        :param str repo_name:
+            Name of the repository.
+
+        :param branch_name:
+            If passed, searches for a specific branch, otherwise all branches of the repository are returned
+        """
         repo = self._github.get_organization(organization).get_repo(repo_name)
         if branch_name == '':
             return list(repo.get_branches())
@@ -88,6 +100,18 @@ class GithubAPI:
         return list(self._github.get_organization(organization).get_repo(repo_name).get_pulls())
 
     def fetch_pull_request(self, organization, repo_name, pr_id):
+        """
+        Returns a specific github.PullRequest.PullRequest
+
+        :param str organization:
+            Name of the Github organization
+
+        :param str repo_name:
+            Name of the Github repository
+
+        :param int pr_id:
+            Pull request ID (the same you see on the Github PR page).
+        """
         return self._github.get_organization(organization).get_repo(repo_name).get_pull(pr_id)
 
     def fetch_repo_commits(self, organization, repo_name, from_branch:str, to_branch:str):
