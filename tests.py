@@ -387,27 +387,34 @@ class TestBot:
         assert '1.0.0' in response
 
 
-@pytest.fixture(scope="module")
-def github_api():
-    return GithubAPI()
+@pytest.fixture
+def github_api(mocker):
+    api = GithubAPI()
+    mocker.patch.object(api, '_github', autospec=True)
+    return api
 
 
-def test_github_fetch_repos(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+@pytest.fixture
+def github_inner_mock(github_api):
+    return github_api._github
+
+
+@pytest.fixture
+def github_get_repo(github_inner_mock):
+    return github_inner_mock.get_organization.return_value.get_repo
+
+
+def test_github_fetch_repos(github_api, github_inner_mock):
     repos = ['conda-devenv', 'deps', 'alfasim-sdk']
-    github_mock.get_organization.return_value.get_repos.return_value = repos
+    github_inner_mock.get_organization.return_value.get_repos.return_value = repos
 
     assert github_api.fetch_repos("esss") == repos
-    github_mock.get_organization.assert_called_with('esss')
+    github_inner_mock.get_organization.assert_called_with('esss')
 
 
-def test_github_fetch_branches(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
-    github_mock.get_organization.return_value.get_repo.return_value.get_branch.return_value = \
-        'single-branch'
-
-    github_mock.get_organization.return_value.get_repo.return_value.get_branches.return_value = \
-        ['branch-1', 'branch-2', 'branch-3']
+def test_github_fetch_branches(github_api, github_get_repo):
+    github_get_repo.return_value.get_branch.return_value = 'single-branch'
+    github_get_repo.return_value.get_branches.return_value = ['branch-1', 'branch-2', 'branch-3']
 
     branches = github_api.fetch_branches('esss', 'alfasim-sdk', branch_name='something')
     assert branches == ['single-branch']
@@ -416,10 +423,9 @@ def test_github_fetch_branches(github_api, mocker):
     assert branches == ['branch-1', 'branch-2', 'branch-3']
 
 
-def test_github_delete_branch(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
+def test_github_delete_branch(github_api, github_get_repo):
     git_repo = GitRepo('repo')
-    github_mock.get_organization.return_value.get_repo.return_value = git_repo
+    github_get_repo.return_value = git_repo
 
     with pytest.raises(AssertionError, match="Trying to delete the wrong branch, check the PR ID."):
         github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
@@ -428,48 +434,43 @@ def test_github_delete_branch(github_api, mocker):
     github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
 
 
-def test_github_fetch_pull_requests(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
-    github_mock.get_organization.return_value.get_repo.return_value.get_pulls.return_value = [1, 2, 3]
+def test_github_fetch_pull_requests(github_api, github_inner_mock, github_get_repo):
+    github_get_repo.return_value.get_pulls.return_value = [1, 2, 3]
 
     prs = github_api.fetch_pull_requests('esss', 'jira2latex')
-    github_mock.get_organization.assert_called_with('esss')
-    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
+    github_inner_mock.get_organization.assert_called_with('esss')
+    github_get_repo.assert_called_with('jira2latex')
     assert prs == [1, 2, 3]
 
 
-def test_github_fetch_pull_request(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
-    github_mock.get_organization.return_value.get_repo.return_value.get_pull.return_value = 'dummy pr'
+def test_github_fetch_pull_request(github_api, github_inner_mock, github_get_repo):
+    github_get_repo.return_value.get_pull.return_value = 'dummy pr'
 
     pr = github_api.fetch_pull_request('esss', 'jira2latex', 42)
-    github_mock.get_organization.assert_called_with('esss')
-    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
+    github_inner_mock.get_organization.assert_called_with('esss')
+    github_get_repo.assert_called_with('jira2latex')
     assert pr == 'dummy pr'
 
 
-def test_github_fetch_repo_commits(github_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
-    github_mock.get_organization.return_value.get_repo.return_value.compare.return_value.commits = \
-        [1, 2, 3]
+def test_github_fetch_repo_commits(github_api, github_inner_mock, github_get_repo):
+    github_get_repo.return_value.compare.return_value.commits = [1, 2, 3]
 
     commits = github_api.fetch_repo_commits('esss', 'jira2latex', 'develop', 'master')
     assert commits == [1, 2, 3]
-    github_mock.get_organization.assert_called_with('esss')
-    github_mock.get_organization.return_value.get_repo.assert_called_with('jira2latex')
-    github_mock.get_organization.return_value.get_repo.return_value.compare.assert_called_with(
-        'master', 'develop')
+    github_inner_mock.get_organization.assert_called_with('esss')
+    github_get_repo.assert_called_with('jira2latex')
+    github_get_repo.return_value.compare.assert_called_with('master', 'develop')
 
 
-def test_github_create_plans(github_api, mock_stash_api, mocker):
-    github_mock = mocker.patch.object(github_api, '_github', autospec=True)
-    github_mock.get_organization.return_value.get_repo.return_value.get_branches.return_value = \
-        ['branch-1', 'branch-2']
-    github_mock.get_organization.return_value.get_repos.return_value = [GitRepo('repo-1'), GitRepo('repo-2')]
-    github_mock.get_organization.return_value.get_repo.return_value.get_pulls.return_value = [GitPR(1), GitPR(2)]
+def test_github_create_plans(github_api, mock_stash_api, github_inner_mock, github_get_repo):
+    github_get_repo.return_value.get_branches.return_value = ['branch-1', 'branch-2']
+    github_inner_mock.get_organization.return_value.get_repos.return_value = [
+        GitRepo('repo-1'), GitRepo('repo-2')]
+
+    github_get_repo.return_value.get_pulls.return_value = [GitPR(1), GitPR(2)]
 
     plans = create_plans(mock_stash_api, github_api, [], ['esss'], 'fb-branch')
-    github_mock.get_organization.assert_called_with('esss')
+    github_inner_mock.get_organization.assert_called_with('esss')
 
     assert len(plans) == 2
     assert [plan.slug for plan in plans] == ['repo-1', 'repo-2']
