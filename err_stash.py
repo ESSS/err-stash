@@ -548,25 +548,18 @@ class StashBot(BotPlugin):
         settings = self.load_user_settings(user)
         if not settings['token']:
             return self.stash_token(msg, [])
-
-        if not settings['github_token']:
-            return self.github_token(msg, [])
-
-        config_keys = ['STASH_PROJECTS', 'GITHUB_ORGANIZATIONS']
-        for key in config_keys:
-            value = self.config.get(key, None)
-            if value is None or value == []:
-                return '`{}` not configured. Use `!plugin config Stash` to configure it.'.format(key)
-
+        projects = self.config['STASH_PROJECTS']
+        if not projects:
+            return '`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it.'
         try:
             lines = list(merge(
-                url=self.config['STASH_URL'],
-                stash_projects=self.config['STASH_PROJECTS'],
+                self.config['STASH_URL'],
+                projects,
                 stash_username=user,
                 stash_password=settings['token'],
-                github_password=None,
-                github_username_or_token=settings['github_token'],
-                github_organizations=self.config['GITHUB_ORGANIZATIONS'],
+                github_password='',
+                github_username_or_token='',
+                github_organizations=[],
                 branch_text=branch_text,
                 confirm=True,
                 force=force)

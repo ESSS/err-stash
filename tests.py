@@ -335,52 +335,8 @@ class TestBot:
         stash_plugin.config = {
             'STASH_URL': 'https://my-server.com/stash',
             'STASH_PROJECTS': ['PROJ-A', 'PROJ-B', 'PROJ-FOO'],
-            'GITHUB_ORGANIZATIONS': ['GIT-FOO']
         }
         return stash_plugin
-
-    @pytest.mark.parametrize(
-        'stash_projects, github_organizations, expected_response',
-        [
-            ([], [], 'STASH_PROJECTS not configured. Use !plugin config Stash to configure it.'),
-            (['P'], [], 'GITHUB_ORGANIZATIONS not configured. Use !plugin config Stash to configure it.'),
-            # TODO: for now we can't test the merge with the correct configuration because we can't mock the
-            # `GithubAPI` internally on the bot, as it runs on another thread, causing `Bad credentials` error
-            # (['P'], ['Z'], '....'),
-        ],
-    )
-    def test_merge(
-            self,
-            testbot,
-            stash_plugin,
-            monkeypatch,
-            stash_projects,
-            github_organizations,
-            expected_response
-    ):
-        testbot.push_message('!merge ASIM-81')
-        response = testbot.pop_message()
-        assert 'Stash API Token not configured' in response
-
-        config = {
-            'STASH_URL': 'https://my-server.com/stash',
-            'STASH_PROJECTS': stash_projects,
-            'GITHUB_ORGANIZATIONS': github_organizations
-        }
-        monkeypatch.setattr(stash_plugin, 'config', config)
-
-        testbot.push_message('!stash token secret-token')
-        response = testbot.pop_message()
-        assert response == 'Token saved.'
-
-        testbot.push_message('!github token github-secret-token')
-        response = testbot.pop_message()
-        assert response == 'Github token saved.'
-
-        testbot.push_message('!merge ASIM-81')
-        response = testbot.pop_message()
-
-        assert response == expected_response
 
     def test_token(self, testbot, stash_plugin, monkeypatch):
         monkeypatch.setattr(stash_plugin, 'config', None)
@@ -409,6 +365,21 @@ class TestBot:
         testbot.push_message('!github token')
         response = testbot.pop_message()
         assert response == 'Your Github Token is: github-secret-token (user: fry)'
+
+    def test_merge(self, testbot, mock_stash_api):
+        testbot.push_message('!merge ASIM-81')
+        response = testbot.pop_message()
+        assert 'Stash API Token not configured' in response
+
+        testbot.push_message('!stash token secret-token')
+        testbot.pop_message()
+
+        testbot.push_message('!merge ASIM-81')
+        response = testbot.pop_message()
+        assert response == (
+            'Could not find any branch with text "ASIM-81" in any repositories '
+            'of Stash projects: PROJ-A, PROJ-B, PROJ-FOO nor Github organizations: .'
+        )
 
     def test_version(self, testbot):
         testbot.push_message('!version')
