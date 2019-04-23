@@ -1,2 +1,2 @@
 stashy
-errbot
+errbot~=5.2
