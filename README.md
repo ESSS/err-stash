@@ -66,8 +66,10 @@ errbot -T
 Execute to configure the bot:
 
 ```
-!plugin config Stash
-{'STASH_URL': 'https://eden.esss.com.br/stash',
+!plugin config Stash {
+'STASH_URL': 'https://eden.esss.com.br/stash',
+'STASH_PROJECTS': ['ESSS'],
+'GITHUB_ORGANIZATIONS': ['ESSS'],
 }
 ```
 
