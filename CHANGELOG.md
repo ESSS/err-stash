@@ -1,3 +1,7 @@
+**1.4.0**
+
+- Add support to merge and close Github pull requests.
+
 **1.3.2**
 
 - Bug fix when try to merge branch to other than `master`.
