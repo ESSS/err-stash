@@ -1,3 +1,2 @@
 stashy
-errbot~=5.2
-pygithub
+errbot
