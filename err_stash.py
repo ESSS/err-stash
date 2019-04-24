@@ -204,6 +204,9 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
         repo_name = repo.name
         branches = github_api.fetch_branches(organization, repo_name, branch_name=branch_text)
 
+        if not branches:
+            continue
+
         plan = MergePlan(repo.owner.name, repo.name, comes_from_github=True)
         plans.append(plan)
         plan.branches = branches
@@ -213,7 +216,7 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
                 has_prs = True
                 plan.pull_requests.append(pr)
         if plan.pull_requests:
-            plan.to_branch = plan.pull_requests[0].base.ref
+            plan.to_branch = 'refs/heads/{}'.format(plan.pull_requests[0].base.ref)
 
     if not plans:
         raise CheckError(
@@ -257,7 +260,7 @@ def ensure_unique_pull_requests(plans, from_branch_display_id):
             if not error_lines:
                 error_lines.append('Multiples PRs for branch `{}` found:'.format(from_branch_display_id))
             links = ['[PR#{id}]({url})'.format(
-                id=x.id if isinstance(x, PullRequest) else x['id'],
+                id=x.number if isinstance(x, PullRequest) else x['id'],
                 url=get_self_url(x))
                 for x in plan.pull_requests
             ]
@@ -289,7 +292,7 @@ def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
                 pr = plan.pull_requests[0]
                 error_lines.append('`{slug}`: [PR#{id}]({url}) targets `{to_ref}`'.format(
                     slug=plan.slug,
-                    id=pr.id if isinstance(pr, PullRequest) else pr['id'],
+                    id=pr.number if isinstance(pr, PullRequest) else pr['id'],
                     url=get_self_url(pr),
                     to_ref=pr.base.ref if isinstance(pr, PullRequest) else pr['toRef']['id'])
                 )
@@ -377,7 +380,7 @@ def ensure_no_conflicts(stash_api, from_branch, plans):
     error_lines = []
     for plan in plans:
         pr_data = plan.pull_requests[0]
-        pr_id = plan.pull_requests[0].id if plan.comes_from_github else pr_data['id']
+        pr_id = plan.pull_requests[0].number if plan.comes_from_github else pr_data['id']
 
         pull_request = pr_data if plan.comes_from_github \
             else stash_api.fetch_pull_request(plan.project, plan.slug, pr_id)
@@ -465,7 +468,7 @@ def merge(
                     organization=plan.project,
                     repo_name=plan.slug,
                     branch_name=plan.branches[0].name,
-                    pr_id=plan.pull_requests[0].id
+                    pr_id=plan.pull_requests[0].number
                 )
             else:
                 stash_api.delete_branch(plan.project, plan.slug, plan.branches[0]['id'])
