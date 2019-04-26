@@ -50,14 +50,24 @@ class GithubAPI:
     """
     Access to the pygithub API.
     """
-    def __init__(self, login_or_token=None, password=None):
+    def __init__(self, login_or_token=None, password=None, organizations=[]):
         self._github = Github(login_or_token=login_or_token, password=password)
         self.url = 'https://github.com'
         # disable PyGithub logger
         logging.disable(logging.CRITICAL)
 
+        # organizations cache
+        self.organizations = {
+            organization: self._github.get_organization(organization) for organization in organizations}
+
+        self.repos = dict()
+        # repositories cache
+        for organization in self.organizations:
+            repos = list(self.organizations[organization].get_repos())
+            self.repos[organization] = {repo.name: repo for repo in repos}
+
     def fetch_repos(self, organization:str):
-        return list(self._github.get_organization(organization).get_repos())
+        return list(self.repos[organization].values())
 
     def fetch_branches(self, organization:str, repo_name:str, *, branch_name:str=''):
         """
@@ -72,7 +82,7 @@ class GithubAPI:
         :param branch_name:
             If passed, searches for a specific branch, otherwise all branches of the repository are returned
         """
-        repo = self._github.get_organization(organization).get_repo(repo_name)
+        repo = self.repos[organization][repo_name]
         if branch_name == '':
             return list(repo.get_branches())
 
@@ -80,7 +90,7 @@ class GithubAPI:
             return [repo.get_branch(branch_name)]
         except GithubException as e:
             if e.status == 404:  # branch doesn't exist on this repo
-                return []
+                return [branch for branch in list(repo.get_branches()) if branch_name in branch.name]
             else:
                 raise
 
@@ -88,7 +98,7 @@ class GithubAPI:
         """
         Deletes the branch based on the pr_id, then Github closes the PR.
         """
-        repo = self._github.get_organization(organization).get_repo(repo_name)
+        repo = self.repos[organization][repo_name]
         git_ref = repo.get_git_ref("heads/{ref}".format(ref=repo.get_pull(pr_id).head.ref))
         assert branch_name in git_ref.ref, "Trying to delete the wrong branch, check the PR ID."
         git_ref.delete()
@@ -97,7 +107,7 @@ class GithubAPI:
         """
         Returns a list with all open pull requests
         """
-        return list(self._github.get_organization(organization).get_repo(repo_name).get_pulls())
+        return list(self.repos[organization][repo_name].get_pulls())
 
     def fetch_pull_request(self, organization, repo_name, pr_id):
         """
@@ -112,7 +122,7 @@ class GithubAPI:
         :param int pr_id:
             Pull request ID (the same you see on the Github PR page).
         """
-        return self._github.get_organization(organization).get_repo(repo_name).get_pull(pr_id)
+        return self.repos[organization][repo_name].get_pull(pr_id)
 
     def fetch_repo_commits(self, organization, repo_name, from_branch:str, to_branch:str):
         """
@@ -125,7 +135,7 @@ class GithubAPI:
         :param to_branch:
             Name of the target branch in the PR (Github calls this base branch).
         """
-        repo = self._github.get_organization(organization).get_repo(repo_name)
+        repo = self.repos[organization][repo_name]
         return repo.compare(to_branch, from_branch).commits
 
 
@@ -202,6 +212,7 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
     for repo in github_repos:
         organization = repo.owner.name
         repo_name = repo.name
+
         branches = github_api.fetch_branches(organization, repo_name, branch_name=branch_text)
 
         if not branches:
@@ -210,7 +221,9 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
         plan = MergePlan(repo.owner.name, repo.name, comes_from_github=True)
         plans.append(plan)
         plan.branches = branches
+
         prs = github_api.fetch_pull_requests(organization, repo_name)
+
         for pr in prs:
             if pr.head.ref == branch_text:
                 has_prs = True
@@ -388,12 +401,15 @@ def ensure_no_conflicts(stash_api, from_branch, plans):
         is_mergeable = pull_request.mergeable if plan.comes_from_github else pull_request.can_merge()
         if not is_mergeable:
             if not error_lines:
-                error_lines.append('The PRs below for branch `{}` have conflicts:'.format(from_branch))
-            error_lines.append('`{slug}`: [PR#{id}]({url}) **CONFLICTS**'.format(
+                error_lines.append(
+                    'The PRs below for branch `{}` have problems such as conflicts, '
+                    'build requirements, etc:'.format(from_branch))
+
+            error_lines.append('`{slug}`: [PR#{id}]({url})'.format(
                 slug=plan.slug, id=pr_id, url=get_self_url(pr_data)))
 
     if error_lines:
-        error_lines.append('Fix the conflicts and try again. :wink:')
+        error_lines.append('Fix them and try again.')
         raise CheckError(error_lines)
 
 
@@ -425,14 +441,15 @@ def merge(
     :param str stash_password: password or access token (write access).
     :param str github_username_or_token: username or token
     :param str github_password: password
-    :param str github_organizations: List of organization names to search repositories
+    :param list github_organizations: List of organization names to search repositories
     :param str branch_text: complete or partial branch name to search for
     :param bool confirm: if True, perform the merge, otherwise just print what would happen.
     :param bool force: if True, won't check if branch target are the same
     :raise CheckError: if a check for merging-readiness fails.
     """
     stash_api = StashAPI(url, username=stash_username, password=stash_password)
-    github_api = GithubAPI(login_or_token=github_username_or_token, password=github_password)
+    github_api = GithubAPI(
+        login_or_token=github_username_or_token, password=github_password, organizations=github_organizations)
 
     plans = create_plans(stash_api, github_api, stash_projects, github_organizations, branch_text)
     from_branch = ensure_text_matches_unique_branch(plans, branch_text)

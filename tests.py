@@ -4,8 +4,9 @@ from collections import OrderedDict
 import pytest
 import stashy
 import stashy.errors
+from github import GithubException
 
-from err_stash import GithubAPI, merge, StashAPI, CheckError, create_plans
+from err_stash import GithubAPI, merge, StashAPI, CheckError, create_plans, ensure_text_matches_unique_branch
 
 
 class DummyPullRequest:
@@ -220,9 +221,9 @@ def test_merge_conflicts(mock_stash_api):
         '10': DummyPullRequest(False),
     }
     call_merge('ASIM-81', [
-        r'The PRs below for branch `fb-ASIM-81-network` have conflicts:',
-        r'`repo3`: \[PR#10\]\(url.com/for/10\) \*\*CONFLICTS\*\*',
-        r'Fix the conflicts and try again. :wink:',
+        r'The PRs below for branch `fb-ASIM-81-network` have problems such as conflicts, build requirements, etc:',
+        r'`repo3`: \[PR#10\]\(url.com/for/10\)',
+        r'Fix them and try again.',
     ])
     assert mock_stash_api['PROJ-B']['repo3']['pull_request']['10'].merged_version is None
 
@@ -420,6 +421,16 @@ class TestBot:
 def github_api(mocker):
     api = GithubAPI()
     mocker.patch.object(api, '_github', autospec=True)
+    organizations = {'esss' : 'esss'}
+    repos = {
+        'esss': {
+            'conda-devenv': GitRepo('conda-devenv'),
+            'deps': GitRepo('deps'),
+            'jira2latex': GitRepo('jira2latex')
+        },
+    }
+    api.organizations = organizations
+    api.repos = repos
     return api
 
 
@@ -433,100 +444,112 @@ def github_get_repo(github_inner_mock):
     return github_inner_mock.get_organization.return_value.get_repo
 
 
-def test_github_fetch_repos(github_api, github_inner_mock):
-    repos = ['conda-devenv', 'deps', 'alfasim-sdk']
-    github_inner_mock.get_organization.return_value.get_repos.return_value = repos
+def test_github_fetch_repos(github_api):
+    repos = github_api.fetch_repos("esss")
+    assert {repo.name for repo in repos} == {'conda-devenv', 'deps', 'jira2latex'}
 
-    assert github_api.fetch_repos("esss") == repos
-    github_inner_mock.get_organization.assert_called_with('esss')
-
-
-def test_github_fetch_branches(github_api, github_get_repo):
-    github_get_repo.return_value.get_branch.return_value = 'single-branch'
-    github_get_repo.return_value.get_branches.return_value = ['branch-1', 'branch-2', 'branch-3']
-
-    branches = github_api.fetch_branches('esss', 'alfasim-sdk', branch_name='something')
-    assert branches == ['single-branch']
-
-    branches = github_api.fetch_branches('esss', 'alfasim-sdk')
-    assert branches == ['branch-1', 'branch-2', 'branch-3']
+@pytest.mark.parametrize('branch_name, expected_branches', [
+    ('', ['master', 'branch-1', 'branch-2', 'branch-3']),
+    ('non-existing', []),
+    ('branch', ['branch-1', 'branch-2', 'branch-3']),
+])
+def test_github_fetch_branches(github_api, branch_name, expected_branches):
+    branches = github_api.fetch_branches('esss', 'jira2latex', branch_name=branch_name)
+    assert [branch.name for branch in branches] == expected_branches
 
 
-def test_github_delete_branch(github_api, github_get_repo):
-    git_repo = GitRepo('repo')
-    github_get_repo.return_value = git_repo
-
+def test_github_delete_branch(github_api):
     with pytest.raises(AssertionError, match="Trying to delete the wrong branch, check the PR ID."):
-        github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
+        github_api.delete_branch('esss', 'jira2latex', 'non-existing-branch', pr_id=42)
 
-    git_repo.name = 'fb-a'
-    github_api.delete_branch('esss', 'jira2latex', 'fb-a', pr_id=42)
+    github_api.delete_branch('esss', 'jira2latex', 'branch-1', pr_id=42)
 
 
-def test_github_fetch_pull_requests(github_api, github_inner_mock, github_get_repo):
-    github_get_repo.return_value.get_pulls.return_value = [1, 2, 3]
-
+def test_github_fetch_pull_requests(github_api):
     prs = github_api.fetch_pull_requests('esss', 'jira2latex')
-    github_inner_mock.get_organization.assert_called_with('esss')
-    github_get_repo.assert_called_with('jira2latex')
-    assert prs == [1, 2, 3]
+    assert [pr.id for pr in prs] == [0, 1, 2]
 
 
-def test_github_fetch_pull_request(github_api, github_inner_mock, github_get_repo):
-    github_get_repo.return_value.get_pull.return_value = 'dummy pr'
-
+def test_github_fetch_pull_request(github_api):
     pr = github_api.fetch_pull_request('esss', 'jira2latex', 42)
-    github_inner_mock.get_organization.assert_called_with('esss')
-    github_get_repo.assert_called_with('jira2latex')
-    assert pr == 'dummy pr'
+    assert pr.id == 42
 
 
-def test_github_fetch_repo_commits(github_api, github_inner_mock, github_get_repo):
-    github_get_repo.return_value.compare.return_value.commits = [1, 2, 3]
-
+def test_github_fetch_repo_commits(github_api):
     commits = github_api.fetch_repo_commits('esss', 'jira2latex', 'develop', 'master')
-    assert commits == [1, 2, 3]
-    github_inner_mock.get_organization.assert_called_with('esss')
-    github_get_repo.assert_called_with('jira2latex')
-    github_get_repo.return_value.compare.assert_called_with('master', 'develop')
+    assert commits == [0, 1, 2]
 
 
-def test_github_create_plans(github_api, mock_stash_api, github_inner_mock, github_get_repo):
-    github_get_repo.return_value.get_branches.return_value = ['branch-1', 'branch-2']
-    github_inner_mock.get_organization.return_value.get_repos.return_value = [
-        GitRepo('repo-1'), GitRepo('repo-2')]
+def test_github_create_plans(github_api, mock_stash_api):
+    plans = create_plans(mock_stash_api, github_api, [], ['esss'], 'branch-1')
+    ensure_text_matches_unique_branch(plans, 'branch-1')
 
-    github_get_repo.return_value.get_pulls.return_value = [GitPR(1), GitPR(2)]
-
-    plans = create_plans(mock_stash_api, github_api, [], ['esss'], 'fb-branch')
-    github_inner_mock.get_organization.assert_called_with('esss')
-
-    assert len(plans) == 2
-    assert [plan.slug for plan in plans] == ['repo-1', 'repo-2']
-    assert [plan.to_branch for plan in plans] == ['master-branch', 'master-branch']
-    assert [len(plan.pull_requests) for plan in plans] == [2, 2]
+    assert len(plans) == 3
+    assert [plan.slug for plan in plans] == ['conda-devenv', 'deps', 'jira2latex']
+    assert [plan.to_branch for plan in plans] == ['refs/heads/master', 'refs/heads/master', 'refs/heads/master']
+    assert [len(plan.pull_requests) for plan in plans] == [1, 1, 1]
 
 
 class GitRepo:
+
     def __init__(self, name):
         self.owner = lambda: None
         self.owner.name = 'esss'
         self.name = name
+        self.branches = [
+            GitBranch('master'),
+            GitBranch('branch-1'),
+            GitBranch('branch-2'),
+            GitBranch('branch-3')
+        ]
 
     def get_git_ref(self, ref):
         result = lambda: None
-        result.ref = "heads/{name}".format(name=self.name)
+        result.ref = "heads/{name}".format(name=ref)
         result.delete = lambda: None
         return result
 
     def get_pull(self, pr_id):
-        return GitPR(pr_id)
+        return GitPR(pr_id, 'branch-1', 'master')
+
+    def get_pulls(self):
+        return [
+            GitPR(0, 'branch-1', 'master'),
+            GitPR(1, 'branch-2', 'branch-3'),
+            GitPR(2, 'branch-3', 'master')
+        ]
+
+    def compare(self, to_branch, from_branch):
+        result = lambda: None
+        result.commits = [0, 1, 2]
+        return result
+
+    def get_branches(self):
+        return self.branches
+
+    def get_branch(self, branch_name):
+        for branch in self.branches:
+            if branch_name == branch.name:
+                return branch
+
+        raise GithubException(404, "not found")
 
 class GitPR:
-    def __init__(self, id):
+
+    def __init__(self, id, from_branch, to_branch):
         self.id = id
         self.head = lambda : None
-        self.head.ref = 'fb-branch'
+        self.head.ref = from_branch
 
         self.base = lambda: None
-        self.base.ref = 'master-branch'
+        self.base.ref = to_branch
+
+class GitBranch:
+
+    def __init__(self, name):
+        self.name = name
+        self.items = dict()
+        self.items['displayId'] = name
+
+    def __getitem__(self, value):
+        return self.items.get(value, '')
