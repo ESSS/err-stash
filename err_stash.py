@@ -206,6 +206,15 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
 
     # Plans for Github repos:
     github_repos = []
+    github_branch_text = branch_text
+    if len(plans) > 0:
+        # if we already found the branch name on Stash, we can use its name here
+        branch_id = plans[0].branches[0]['id']
+        if 'refs/heads/' in branch_id:
+            branch_id = branch_id[len('refs/heads/'):]
+
+        github_branch_text = branch_id
+
     for project in github_organizations:
         github_repos += github_api.fetch_repos(project)
 
@@ -213,7 +222,7 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
         organization = repo.owner.name
         repo_name = repo.name
 
-        branches = github_api.fetch_branches(organization, repo_name, branch_name=branch_text)
+        branches = github_api.fetch_branches(organization, repo_name, branch_name=github_branch_text)
 
         if not branches:
             continue
@@ -225,7 +234,7 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
         prs = github_api.fetch_pull_requests(organization, repo_name)
 
         for pr in prs:
-            if pr.head.ref == branch_text:
+            if pr.head.ref == github_branch_text:
                 has_prs = True
                 plan.pull_requests.append(pr)
         if plan.pull_requests:

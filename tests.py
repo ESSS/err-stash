@@ -485,7 +485,10 @@ def test_github_create_plans(github_api, mock_stash_api):
     ensure_text_matches_unique_branch(plans, 'branch-1')
 
     assert len(plans) == 3
-    assert [plan.slug for plan in plans] == ['conda-devenv', 'deps', 'jira2latex']
+    for plan in plans:
+        # need to assert this way because the order is not a guaranteed
+        assert plan.slug in ['conda-devenv', 'deps', 'jira2latex']
+
     assert [plan.to_branch for plan in plans] == ['refs/heads/master', 'refs/heads/master', 'refs/heads/master']
     assert [len(plan.pull_requests) for plan in plans] == [1, 1, 1]
 
