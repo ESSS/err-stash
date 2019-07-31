@@ -1,6 +1,7 @@
 import argparse
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -74,7 +75,7 @@ class GithubAPI:
         Returns a list of branches based on organization and name of the repository.
 
         :param str organization:
-            Name of the Github orgnization.
+            Name of the Github organization.
 
         :param str repo_name:
             Name of the repository.
@@ -90,7 +91,10 @@ class GithubAPI:
             return [repo.get_branch(branch_name)]
         except GithubException as e:
             if e.status == 404:  # branch doesn't exist on this repo
-                return [branch for branch in list(repo.get_branches()) if branch_name in branch.name]
+                # REMINDER: trying to match branch name like this:
+                # return [branch for branch in list(repo.get_branches()) if branch_name in branch.name]
+                # slows down the merge plans creation in ~5 to ~10 extra seconds.
+                return []
             else:
                 raise
 
@@ -215,30 +219,37 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
 
         github_branch_text = branch_id
 
-    for project in github_organizations:
-        github_repos += github_api.fetch_repos(project)
+    organization_to_repos = defaultdict(list)
+    for organization in github_organizations:
+        organization_to_repos[organization] += github_api.fetch_repos(organization)
 
-    for repo in github_repos:
-        organization = repo.owner.name
-        repo_name = repo.name
+    futures = dict()
+    for organization in organization_to_repos.keys():
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            for repo in organization_to_repos[organization]:
+                repo_name = repo.name
+                f = executor.submit(
+                    github_api.fetch_branches, organization, repo_name, branch_name=github_branch_text)
 
-        branches = github_api.fetch_branches(organization, repo_name, branch_name=github_branch_text)
+                futures[f] = repo_name
 
-        if not branches:
-            continue
+            for f in as_completed(futures.keys()):
+                branches = f.result()
+                if not branches:
+                    continue
 
-        plan = MergePlan(repo.owner.name, repo.name, comes_from_github=True)
-        plans.append(plan)
-        plan.branches = branches
+                plan = MergePlan(repo.owner.name, repo.name, comes_from_github=True)
+                plans.append(plan)
+                plan.branches = branches
 
-        prs = github_api.fetch_pull_requests(organization, repo_name)
+                prs = github_api.fetch_pull_requests(organization, repo_name)
 
-        for pr in prs:
-            if pr.head.ref == github_branch_text:
-                has_prs = True
-                plan.pull_requests.append(pr)
-        if plan.pull_requests:
-            plan.to_branch = 'refs/heads/{}'.format(plan.pull_requests[0].base.ref)
+                for pr in prs:
+                    if pr.head.ref == github_branch_text:
+                        has_prs = True
+                        plan.pull_requests.append(pr)
+                if plan.pull_requests:
+                    plan.to_branch = 'refs/heads/{}'.format(plan.pull_requests[0].base.ref)
 
     if not plans:
         raise CheckError(

@@ -451,7 +451,6 @@ def test_github_fetch_repos(github_api):
 @pytest.mark.parametrize('branch_name, expected_branches', [
     ('', ['master', 'branch-1', 'branch-2', 'branch-3']),
     ('non-existing', []),
-    ('branch', ['branch-1', 'branch-2', 'branch-3']),
 ])
 def test_github_fetch_branches(github_api, branch_name, expected_branches):
     branches = github_api.fetch_branches('esss', 'jira2latex', branch_name=branch_name)
