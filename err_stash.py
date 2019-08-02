@@ -98,14 +98,20 @@ class GithubAPI:
             else:
                 raise
 
-    def delete_branch(self, organization:str, repo_name:str, branch_name:str, pr_id):
+    def delete_branch(self, organization:str, repo_name:str, branch_name:str):
         """
-        Deletes the branch based on the pr_id, then Github closes the PR.
+        Deletes one branch from one repository.
         """
         repo = self.repos[organization][repo_name]
-        git_ref = repo.get_git_ref("heads/{ref}".format(ref=repo.get_pull(pr_id).head.ref))
-        assert branch_name in git_ref.ref, "Trying to delete the wrong branch, check the PR ID."
-        git_ref.delete()
+        try:
+            git_ref = repo.get_git_ref("heads/{branch_name}".format(branch_name=branch_name))
+        except GithubException as e:
+            raise CheckError(
+                "Error deleting branch '{branch_name}' in repo {repo_name}".format(
+                    branch_name=branch_name, repo_name=repo_name)
+            ) from e
+        else:
+            git_ref.delete()
 
     def fetch_pull_requests(self, organization, repo_name):
         """
@@ -202,16 +208,15 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
             branch_ids = [x['id'] for x in plan.branches]
             prs = list(stash_api.fetch_pull_requests(project, slug))
             for pr in prs:
-                has_prs = True
                 if pr['fromRef']['id'] in branch_ids:
+                    has_prs = True
                     plan.pull_requests.append(pr)
             if plan.pull_requests:
                 plan.to_branch = plan.pull_requests[0]['toRef']['id']
 
     # Plans for Github repos:
-    github_repos = []
     github_branch_text = branch_text
-    if len(plans) > 0:
+    if len(plans) > 0 and len(plans[0].branches) > 0:
         # if we already found the branch name on Stash, we can use its name here
         branch_id = plans[0].branches[0]['id']
         if 'refs/heads/' in branch_id:
@@ -234,11 +239,12 @@ def create_plans(stash_api, github_api, stash_projects, github_organizations, br
                 futures[f] = repo_name
 
             for f in as_completed(futures.keys()):
+                repo_name = futures[f]
                 branches = f.result()
                 if not branches:
                     continue
 
-                plan = MergePlan(repo.owner.name, repo.name, comes_from_github=True)
+                plan = MergePlan(organization, repo_name, comes_from_github=True)
                 plans.append(plan)
                 plan.branches = branches
 
@@ -505,7 +511,6 @@ def merge(
                     organization=plan.project,
                     repo_name=plan.slug,
                     branch_name=plan.branches[0].name,
-                    pr_id=plan.pull_requests[0].number
                 )
             else:
                 stash_api.delete_branch(plan.project, plan.slug, plan.branches[0]['id'])

@@ -458,10 +458,7 @@ def test_github_fetch_branches(github_api, branch_name, expected_branches):
 
 
 def test_github_delete_branch(github_api):
-    with pytest.raises(AssertionError, match="Trying to delete the wrong branch, check the PR ID."):
-        github_api.delete_branch('esss', 'jira2latex', 'non-existing-branch', pr_id=42)
-
-    github_api.delete_branch('esss', 'jira2latex', 'branch-1', pr_id=42)
+    github_api.delete_branch('esss', 'jira2latex', 'branch-1')
 
 
 def test_github_fetch_pull_requests(github_api):
