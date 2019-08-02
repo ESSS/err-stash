@@ -51,7 +51,7 @@ class GithubAPI:
     """
     Access to the pygithub API.
     """
-    def __init__(self, login_or_token=None, password=None, organizations=[]):
+    def __init__(self, login_or_token=None, password=None, organizations=tuple()):
         self._github = Github(login_or_token=login_or_token, password=password)
         self.url = 'https://github.com'
         # disable PyGithub logger
@@ -105,13 +105,12 @@ class GithubAPI:
         repo = self.repos[organization][repo_name]
         try:
             git_ref = repo.get_git_ref("heads/{branch_name}".format(branch_name=branch_name))
+            git_ref.delete()
         except GithubException as e:
             raise CheckError(
                 "Error deleting branch '{branch_name}' in repo {repo_name}".format(
                     branch_name=branch_name, repo_name=repo_name)
             ) from e
-        else:
-            git_ref.delete()
 
     def fetch_pull_requests(self, organization, repo_name):
         """
@@ -344,7 +343,7 @@ def ensure_pull_requests_target_same_branch(plans, from_branch_display_id):
 def make_pr_link(url, project, slug, from_branch, to_branch):
     """Generates a URL that can be used to create a PR"""
     from urllib.parse import urlencode
-    if 'github' in url:
+    if 'github.com/' in url:
         result = '{url}/{organization}/{repo_name}/compare/{from_branch}'.format(
             url=url, organization=project, repo_name=slug, from_branch=from_branch)
     else:
@@ -475,7 +474,8 @@ def merge(
     """
     stash_api = StashAPI(url, username=stash_username, password=stash_password)
     github_api = GithubAPI(
-        login_or_token=github_username_or_token, password=github_password, organizations=github_organizations)
+        login_or_token=github_username_or_token, password=github_password, organizations=tuple(github_organizations)
+    )
 
     plans = create_plans(stash_api, github_api, stash_projects, github_organizations, branch_text)
     from_branch = ensure_text_matches_unique_branch(plans, branch_text)
@@ -597,11 +597,9 @@ class StashBot(BotPlugin):
         if not settings['github_token']:
             return self.github_token(msg, [])
 
-        config_keys = ['STASH_PROJECTS', 'GITHUB_ORGANIZATIONS']
-        for key in config_keys:
-            value = self.config.get(key, None)
-            if value is None or value == []:
-                return '`{}` not configured. Use `!plugin config Stash` to configure it.'.format(key)
+        stash_projects = self.config.get('STASH_PROJECTS', None)
+        if stash_projects is None or stash_projects == []:
+            return '`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it.'
 
         try:
             lines = list(merge(

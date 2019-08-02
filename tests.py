@@ -336,7 +336,7 @@ class TestBot:
         stash_plugin.config = {
             'STASH_URL': 'https://my-server.com/stash',
             'STASH_PROJECTS': ['PROJ-A', 'PROJ-B', 'PROJ-FOO'],
-            'GITHUB_ORGANIZATIONS': ['GIT-FOO']
+            'GITHUB_ORGANIZATIONS': ['GIT-FOO'],
         }
         return stash_plugin
 
@@ -344,10 +344,6 @@ class TestBot:
         'stash_projects, github_organizations, expected_response',
         [
             ([], [], 'STASH_PROJECTS not configured. Use !plugin config Stash to configure it.'),
-            (['P'], [], 'GITHUB_ORGANIZATIONS not configured. Use !plugin config Stash to configure it.'),
-            # TODO: for now we can't test the merge with the correct configuration because we can't mock the
-            # `GithubAPI` internally on the bot, as it runs on another thread, causing `Bad credentials` error
-            # (['P'], ['Z'], '....'),
         ],
     )
     def test_merge(
@@ -366,7 +362,7 @@ class TestBot:
         config = {
             'STASH_URL': 'https://my-server.com/stash',
             'STASH_PROJECTS': stash_projects,
-            'GITHUB_ORGANIZATIONS': github_organizations
+            'GITHUB_ORGANIZATIONS': github_organizations,
         }
         monkeypatch.setattr(stash_plugin, 'config', config)
 
