@@ -734,8 +734,10 @@ This only needs to be done once.
 
 NO_GITHUB_TOKEN_MSG = """
 **Github API Token not configured**.
-Create a new token [here](https://github.com/settings/tokens/new) with **write access** and then execute:
+Create a new token [here](https://github.com/settings/tokens/new) checking all boxes in `repo` and `user`,
+then execute:
     `!github token <TOKEN>`
+
 This only needs to be done once.
 """
 
