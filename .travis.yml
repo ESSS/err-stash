@@ -1,11 +1,20 @@
 sudo: false
 language: python
-python:
-  - '3.5'
-  - '3.6'
+
 install:
   - pip install --upgrade pip setuptools
   - pip install -r dev-requirements.txt
 
-script:
-  - pytest tests.py
+jobs:
+  include:
+    - script: python -m pytest tests.py
+      python: "3.7"
+      name: "Python 3.7"
+
+    - script: python -m pytest tests.py
+      python: "3.6"
+      name: "Python 3.6"
+
+    - script: pre-commit run --all-files --show-diff-on-failure
+      python: "3.6"
+      name: "Linting"
