@@ -25,11 +25,11 @@ Create a **pure** virtual environment with Python 3.6 and activate it. Using `co
 
 ```
 conda create -n py36 python=3.6
-W:\Miniconda\envs\py36\python.exe -m venv .env36 
+W:\Miniconda\envs\py36\python.exe -m venv .env36
 .env36\Scripts\activate
 ```
 
-**It is important to use a pure virtual environment and not a conda environment** otherwise 
+**It is important to use a pure virtual environment and not a conda environment** otherwise
 `pip install` might break `conda`.
 
 Install dependencies:

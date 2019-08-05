@@ -2,3 +2,4 @@
 pytest >=3.3
 pytest-mock
 attrs
+pre-commit
