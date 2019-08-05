@@ -4,8 +4,9 @@ from collections import OrderedDict
 import pytest
 import stashy
 import stashy.errors
+from github import GithubException
 
-from err_stash import merge, StashAPI, CheckError
+from err_stash import GithubAPI, merge, StashAPI, CheckError, create_plans, ensure_text_matches_unique_branch
 
 
 class DummyPullRequest:
@@ -22,7 +23,7 @@ class DummyPullRequest:
 
 
 @pytest.fixture
-def mock_api(mocker):
+def mock_stash_api(mocker):
     mocker.patch.object(stashy, 'connect', autospec=True)
     api = StashAPI('https://myserver.com/stash', username='fry', password='PASSWORD123')
     args, kwargs = stashy.connect.call_args
@@ -110,8 +111,18 @@ def mock_api(mocker):
 
 def call_merge(branch_text, matching_lines, force=False):
     try:
-        lines = list(merge('https://myserver.com/stash', ['PROJ-A', 'PROJ-B'], username='fry', password='PASSWORD123',
-                           branch_text=branch_text, confirm=True, force=force))
+        lines = list(merge(
+            'https://myserver.com/stash',
+            ['PROJ-A', 'PROJ-B'],
+            stash_username='fry',
+            stash_password='PASSWORD123',
+            github_username_or_token='',
+            github_password='',
+            github_organizations=[],
+            branch_text=branch_text,
+            confirm=True,
+            force=force
+        ))
     except CheckError as e:
         lines = e.lines
     from _pytest.pytester import LineMatcher
@@ -123,12 +134,12 @@ def make_link(url):
     return dict(self=[dict(href=url)])
 
 
-def test_duplicate_branches(mock_api):
-    mock_api['PROJ-A']['repo1']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network', displayId='fb-ASIM-81-network'),
+def test_duplicate_branches(mock_stash_api):
+    mock_stash_api['PROJ-A']['repo1']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network', displayId='fb-ASIM-81-network'),
                                                dict(id='refs/heads/fb-ASIM-81-network-test',
                                                     displayId='fb-ASIM-81-network-test')]
-    mock_api['PROJ-A']['repo2']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network')]
-    mock_api['PROJ-B']['repo3']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network'),
+    mock_stash_api['PROJ-A']['repo2']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network')]
+    mock_stash_api['PROJ-B']['repo3']['branches'] = [dict(id='refs/heads/fb-ASIM-81-network'),
                                                dict(id='refs/heads/fb-SSRL-1890-py3')]
 
     call_merge('ASIM-81', [
@@ -138,8 +149,8 @@ def test_duplicate_branches(mock_api):
     ])
 
 
-def test_multiples_prs_for_same_branch(mock_api):
-    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+def test_multiples_prs_for_same_branch(mock_stash_api):
+    mock_stash_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
                                                          fromRef=dict(id='refs/heads/fb-ASIM-81-network'),
                                                          toRef=dict(id='refs/heads/master'),
                                                          displayId='fb-ASIM-81-network',
@@ -158,13 +169,13 @@ def test_multiples_prs_for_same_branch(mock_api):
     ])
 
 
-def test_prs_with_different_targets(mock_api):
-    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+def test_prs_with_different_targets(mock_stash_api):
+    mock_stash_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
                                                          fromRef=dict(id='refs/heads/fb-ASIM-81-network'),
                                                          toRef=dict(id='refs/heads/features'),
                                                          displayId='fb-ASIM-81-network',
                                                          links=make_link('url.com/for/10'))]
-    mock_api['PROJ-B']['repo3']['pull_requests'] = [dict(id='17',
+    mock_stash_api['PROJ-B']['repo3']['pull_requests'] = [dict(id='17',
                                                          fromRef=dict(id='refs/heads/fb-ASIM-81-network'),
                                                          toRef=dict(id='refs/heads/master'),
                                                          displayId='fb-ASIM-81-network',
@@ -179,11 +190,11 @@ def test_prs_with_different_targets(mock_api):
     ])
 
 
-def test_branch_commits_without_pr(mock_api):
+def test_branch_commits_without_pr(mock_stash_api):
     from_branch = 'refs/heads/fb-ASIM-81-network'
     to_branch = 'refs/heads/master'
-    mock_api['PROJ-B']['repo3']['commits'] = {(from_branch, to_branch): ['A', 'B']}
-    mock_api['PROJ-A']['repo1']['commits'] = {(from_branch, to_branch): ['C']}
+    mock_stash_api['PROJ-B']['repo3']['commits'] = {(from_branch, to_branch): ['A', 'B']}
+    mock_stash_api['PROJ-A']['repo1']['commits'] = {(from_branch, to_branch): ['C']}
     pr_link = re.escape(
         'https://myserver.com/stash/projects/PROJ-A/repos/repo1/compare/commits?'
         'sourceBranch=fb-ASIM-81-network&'
@@ -196,8 +207,8 @@ def test_branch_commits_without_pr(mock_api):
     ])
 
 
-def test_branch_missing(mock_api):
-    mock_api['PROJ-A']['repo1']['branches'] = []
+def test_branch_missing(mock_stash_api):
+    mock_stash_api['PROJ-A']['repo1']['branches'] = []
     call_merge('ASIM-81', [
         r'Branch `fb-ASIM-81-network` merged into:',
         r':white_check_mark: `repo3` **2 commits** -> `master`',
@@ -205,20 +216,20 @@ def test_branch_missing(mock_api):
     ])
 
 
-def test_merge_conflicts(mock_api):
-    mock_api['PROJ-B']['repo3']['pull_request'] = {
+def test_merge_conflicts(mock_stash_api):
+    mock_stash_api['PROJ-B']['repo3']['pull_request'] = {
         '10': DummyPullRequest(False),
     }
     call_merge('ASIM-81', [
-        r'The PRs below for branch `fb-ASIM-81-network` have conflicts:',
-        r'`repo3`: \[PR#10\]\(url.com/for/10\) \*\*CONFLICTS\*\*',
-        r'Fix the conflicts and try again. :wink:',
+        r'The PRs below for branch `fb-ASIM-81-network` have problems such as conflicts, build requirements, etc:',
+        r'`repo3`: \[PR#10\]\(url.com/for/10\)',
+        r'Fix them and try again.',
     ])
-    assert mock_api['PROJ-B']['repo3']['pull_request']['10'].merged_version is None
+    assert mock_stash_api['PROJ-B']['repo3']['pull_request']['10'].merged_version is None
 
 
-def test_merge_success(mock_api):
-    pull_request = mock_api['PROJ-B']['repo3']['pull_request']['10']
+def test_merge_success(mock_stash_api):
+    pull_request = mock_stash_api['PROJ-B']['repo3']['pull_request']['10']
     call_merge('ASIM-81', [
         r'Branch `fb-ASIM-81-network` merged into:',
         r':white_check_mark: `repo3` **2 commits** -> `master`',
@@ -226,28 +237,28 @@ def test_merge_success(mock_api):
         r'Branch deleted from repositories: `repo1`, `repo3`'
     ])
     assert pull_request.merged_version == '10'
-    assert mock_api['PROJ-A']['repo1']['branches'] == [
+    assert mock_stash_api['PROJ-A']['repo1']['branches'] == [
         dict(id='refs/heads/fb-SSRL-1890-py3', displayId='fb-SSRL-1890-py3'),
     ]
-    assert mock_api['PROJ-A']['repo2']['branches'] == [
+    assert mock_stash_api['PROJ-A']['repo2']['branches'] == [
         dict(id='refs/heads/fb-SSRL-1890-py3', displayId='fb-SSRL-1890-py3'),
     ]
-    assert mock_api['PROJ-B']['repo3']['branches'] == [
+    assert mock_stash_api['PROJ-B']['repo3']['branches'] == [
         dict(id='refs/heads/fb-SSRL-1890-py3', displayId='fb-SSRL-1890-py3'),
     ]
 
 
-def test_prs_with_different_targets_force_merge(mock_api):
-    mock_api['PROJ-A']['repo1']['commits'] = {
+def test_prs_with_different_targets_force_merge(mock_stash_api):
+    mock_stash_api['PROJ-A']['repo1']['commits'] = {
         ('refs/heads/fb-ASIM-81-network', 'refs/heads/features'): ['C', 'D'],
     }
-    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+    mock_stash_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
                                                          fromRef=dict(id='refs/heads/fb-ASIM-81-network'),
                                                          toRef=dict(id='refs/heads/features'),
                                                          displayId='fb-ASIM-81-network',
                                                          links=make_link('url.com/for/10'),
                                                          version='10')]
-    mock_api['PROJ-A']['repo1']['pull_request'] = {
+    mock_stash_api['PROJ-A']['repo1']['pull_request'] = {
         '10': DummyPullRequest(True),
     }
 
@@ -259,16 +270,17 @@ def test_prs_with_different_targets_force_merge(mock_api):
     ], force=True)
 
 
-def test_no_pull_requests(mock_api):
-    del mock_api['PROJ-B']['repo3']['pull_requests']
+def test_no_pull_requests(mock_stash_api):
+    del mock_stash_api['PROJ-B']['repo3']['pull_requests']
     call_merge('ASIM-81', [
         r'No PRs are open with text `"ASIM-81"`',
     ])
 
 
-def test_no_matching_branch(mock_api):
+def test_no_matching_branch(mock_stash_api):
     call_merge('FOOBAR-81', [
-        r'Could not find any branch with text `"FOOBAR-81"` in any repositories of projects `PROJ-A`, `PROJ-B`.',
+        r'Could not find any branch with text `"FOOBAR-81"` in any repositories of Stash projects: '
+        r'`PROJ-A`, `PROJ-B` nor Github organizations: .',
     ])
 
 
@@ -276,26 +288,26 @@ pytest_plugins = ["errbot.backends.test"]
 extra_plugin_dir = '.'
 
 
-def test_merge_default_branch(mock_api):
+def test_merge_default_branch(mock_stash_api):
     from_branch = "fb-SSRL-1890-py3"
-    mock_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
+    mock_stash_api['PROJ-A']['repo1']['pull_requests'] = [dict(id='10',
                                                          fromRef=dict(id="refs/heads/" + from_branch),
                                                          toRef=dict(id='refs/heads/target_branch'),
                                                          displayId=from_branch,
                                                          links=make_link('url.com/for/10'),
                                                          version='10')]
-    mock_api['PROJ-A']['repo1']['pull_request'] = {
+    mock_stash_api['PROJ-A']['repo1']['pull_request'] = {
         '10': DummyPullRequest(True),
     }
-    mock_api['PROJ-A']['repo1']['commits'] = {
+    mock_stash_api['PROJ-A']['repo1']['commits'] = {
         ("refs/heads/" + from_branch, 'refs/heads/target_branch'): ['A', 'B'],
     }
 
-    mock_api['PROJ-B']['repo3']['branches'].append(
+    mock_stash_api['PROJ-B']['repo3']['branches'].append(
         dict(id='refs/heads/target_branch', displayId='target_branch'),
     )
 
-    mock_api['PROJ-B']['repo3']['commits'] = {
+    mock_stash_api['PROJ-B']['repo3']['commits'] = {
         ("refs/heads/" + from_branch, 'refs/heads/master'): ['C', 'D'],
     }
 
@@ -324,8 +336,48 @@ class TestBot:
         stash_plugin.config = {
             'STASH_URL': 'https://my-server.com/stash',
             'STASH_PROJECTS': ['PROJ-A', 'PROJ-B', 'PROJ-FOO'],
+            'GITHUB_ORGANIZATIONS': ['GIT-FOO'],
         }
         return stash_plugin
+
+    @pytest.mark.parametrize(
+        'stash_projects, github_organizations, expected_response',
+        [
+            ([], [], 'STASH_PROJECTS not configured. Use !plugin config Stash to configure it.'),
+        ],
+    )
+    def test_merge(
+            self,
+            testbot,
+            stash_plugin,
+            monkeypatch,
+            stash_projects,
+            github_organizations,
+            expected_response
+    ):
+        testbot.push_message('!merge ASIM-81')
+        response = testbot.pop_message()
+        assert 'Stash API Token not configured' in response
+
+        config = {
+            'STASH_URL': 'https://my-server.com/stash',
+            'STASH_PROJECTS': stash_projects,
+            'GITHUB_ORGANIZATIONS': github_organizations,
+        }
+        monkeypatch.setattr(stash_plugin, 'config', config)
+
+        testbot.push_message('!stash token secret-token')
+        response = testbot.pop_message()
+        assert response == 'Token saved.'
+
+        testbot.push_message('!github token github-secret-token')
+        response = testbot.pop_message()
+        assert response == 'Github token saved.'
+
+        testbot.push_message('!merge ASIM-81')
+        response = testbot.pop_message()
+
+        assert response == expected_response
 
     def test_token(self, testbot, stash_plugin, monkeypatch):
         monkeypatch.setattr(stash_plugin, 'config', None)
@@ -345,22 +397,15 @@ class TestBot:
 
         testbot.push_message('!stash token')
         response = testbot.pop_message()
-        assert response == 'You API Token is: secret-token (user: fry)'
+        assert response == 'Your API Token is: secret-token (user: fry)'
 
-    def test_merge(self, testbot, mock_api):
-        testbot.push_message('!merge ASIM-81')
+        testbot.push_message('!github token github-secret-token')
         response = testbot.pop_message()
-        assert 'Stash API Token not configured' in response
+        assert response == 'Github token saved.'
 
-        testbot.push_message('!stash token secret-token')
-        testbot.pop_message()
-
-        testbot.push_message('!merge ASIM-81')
+        testbot.push_message('!github token')
         response = testbot.pop_message()
-        assert response == (
-            'Could not find any branch with text "ASIM-81" in any repositories '
-            'of projects PROJ-A, PROJ-B, PROJ-FOO.'
-        )
+        assert response == 'Your Github Token is: github-secret-token (user: fry)'
 
     def test_version(self, testbot):
         testbot.push_message('!version')
@@ -368,3 +413,138 @@ class TestBot:
         assert '1.0.0' in response
 
 
+@pytest.fixture
+def github_api(mocker):
+    api = GithubAPI()
+    mocker.patch.object(api, '_github', autospec=True)
+    organizations = {'esss' : 'esss'}
+    repos = {
+        'esss': {
+            'conda-devenv': GitRepo('conda-devenv'),
+            'deps': GitRepo('deps'),
+            'jira2latex': GitRepo('jira2latex')
+        },
+    }
+    api.organizations = organizations
+    api.repos = repos
+    return api
+
+
+@pytest.fixture
+def github_inner_mock(github_api):
+    return github_api._github
+
+
+@pytest.fixture
+def github_get_repo(github_inner_mock):
+    return github_inner_mock.get_organization.return_value.get_repo
+
+
+def test_github_fetch_repos(github_api):
+    repos = github_api.fetch_repos("esss")
+    assert {repo.name for repo in repos} == {'conda-devenv', 'deps', 'jira2latex'}
+
+@pytest.mark.parametrize('branch_name, expected_branches', [
+    ('', ['master', 'branch-1', 'branch-2', 'branch-3']),
+    ('non-existing', []),
+])
+def test_github_fetch_branches(github_api, branch_name, expected_branches):
+    branches = github_api.fetch_branches('esss', 'jira2latex', branch_name=branch_name)
+    assert [branch.name for branch in branches] == expected_branches
+
+
+def test_github_delete_branch(github_api):
+    github_api.delete_branch('esss', 'jira2latex', 'branch-1')
+
+
+def test_github_fetch_pull_requests(github_api):
+    prs = github_api.fetch_pull_requests('esss', 'jira2latex')
+    assert [pr.id for pr in prs] == [0, 1, 2]
+
+
+def test_github_fetch_pull_request(github_api):
+    pr = github_api.fetch_pull_request('esss', 'jira2latex', 42)
+    assert pr.id == 42
+
+
+def test_github_fetch_repo_commits(github_api):
+    commits = github_api.fetch_repo_commits('esss', 'jira2latex', 'develop', 'master')
+    assert commits == [0, 1, 2]
+
+
+def test_github_create_plans(github_api, mock_stash_api):
+    plans = create_plans(mock_stash_api, github_api, [], ['esss'], 'branch-1')
+    ensure_text_matches_unique_branch(plans, 'branch-1')
+
+    assert len(plans) == 3
+    for plan in plans:
+        # need to assert this way because the order is not a guaranteed
+        assert plan.slug in ['conda-devenv', 'deps', 'jira2latex']
+
+    assert [plan.to_branch for plan in plans] == ['refs/heads/master', 'refs/heads/master', 'refs/heads/master']
+    assert [len(plan.pull_requests) for plan in plans] == [1, 1, 1]
+
+
+class GitRepo:
+
+    def __init__(self, name):
+        self.owner = lambda: None
+        self.owner.name = 'esss'
+        self.name = name
+        self.branches = [
+            GitBranch('master'),
+            GitBranch('branch-1'),
+            GitBranch('branch-2'),
+            GitBranch('branch-3')
+        ]
+
+    def get_git_ref(self, ref):
+        result = lambda: None
+        result.ref = "heads/{name}".format(name=ref)
+        result.delete = lambda: None
+        return result
+
+    def get_pull(self, pr_id):
+        return GitPR(pr_id, 'branch-1', 'master')
+
+    def get_pulls(self):
+        return [
+            GitPR(0, 'branch-1', 'master'),
+            GitPR(1, 'branch-2', 'branch-3'),
+            GitPR(2, 'branch-3', 'master')
+        ]
+
+    def compare(self, to_branch, from_branch):
+        result = lambda: None
+        result.commits = [0, 1, 2]
+        return result
+
+    def get_branches(self):
+        return self.branches
+
+    def get_branch(self, branch_name):
+        for branch in self.branches:
+            if branch_name == branch.name:
+                return branch
+
+        raise GithubException(404, "not found")
+
+class GitPR:
+
+    def __init__(self, id, from_branch, to_branch):
+        self.id = id
+        self.head = lambda : None
+        self.head.ref = from_branch
+
+        self.base = lambda: None
+        self.base.ref = to_branch
+
+class GitBranch:
+
+    def __init__(self, name):
+        self.name = name
+        self.items = dict()
+        self.items['displayId'] = name
+
+    def __getitem__(self, value):
+        return self.items.get(value, '')

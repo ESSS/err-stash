@@ -2,3 +2,4 @@ name: err-stash
 dependencies:
 - python >=3
 - stashy
+- pygithub

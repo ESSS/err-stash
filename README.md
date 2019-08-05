@@ -21,7 +21,7 @@ git clone git@github.com:ESSS/err-stash.git
 cd err-stash
 ```
 
-Create a virtual environment with Python 3.6 and activate it. Using `conda`:
+Create a **pure** virtual environment with Python 3.6 and activate it. Using `conda`:
 
 ```
 conda create -n py36 python=3.6
@@ -29,7 +29,8 @@ W:\Miniconda\envs\py36\python.exe -m venv .env36
 .env36\Scripts\activate
 ```
 
-**It is important to use a pure virtual environment and not a conda environment**.
+**It is important to use a pure virtual environment and not a conda environment** otherwise 
+`pip install` might break `conda`.
 
 Install dependencies:
 
@@ -65,8 +66,10 @@ errbot -T
 Execute to configure the bot:
 
 ```
-!plugin config Stash
-{'STASH_URL': 'https://eden.esss.com.br/stash',
+!plugin config Stash {
+'STASH_URL': 'https://eden.esss.com.br/stash',
+'STASH_PROJECTS': ['ESSS'],
+'GITHUB_ORGANIZATIONS': ['ESSS'],
 }
 ```
 
