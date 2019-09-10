@@ -13,6 +13,7 @@ from err_stash import (
     CheckError,
     create_plans,
     ensure_text_matches_unique_branch,
+    make_pr_link,
 )
 
 
@@ -592,6 +593,28 @@ def test_github_create_plans(github_api, mock_stash_api):
         "refs/heads/master",
     ]
     assert [len(plan.pull_requests) for plan in plans] == [1, 1, 1]
+
+
+def test_make_pr_link(github_api):
+    expected_pr_link = (
+        fr"https://github.com/esss/jira2latex/compare/to_branch...from_branch"
+    )
+    assert (
+        make_pr_link(github_api.url, "esss", "jira2latex", "from_branch", "to_branch")
+        == expected_pr_link
+    )
+
+    expected_pr_link = fr"https://eden.esss.com.br/stash/projects/esss/repos/some_project/compare/commits?sourceBranch=dev_branch&targetBranch=master"
+    assert (
+        make_pr_link(
+            fr"https://eden.esss.com.br/stash",
+            "esss",
+            "some_project",
+            "dev_branch",
+            "master",
+        )
+        == expected_pr_link
+    )
 
 
 class GitRepo:

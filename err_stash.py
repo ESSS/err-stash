@@ -387,9 +387,13 @@ def make_pr_link(url, project, slug, from_branch, to_branch):
     """Generates a URL that can be used to create a PR"""
     from urllib.parse import urlencode
 
-    if "github.com/" in url:
-        result = "{url}/{organization}/{repo_name}/compare/{from_branch}".format(
-            url=url, organization=project, repo_name=slug, from_branch=from_branch
+    if "github.com" in url:
+        result = "{url}/{organization}/{repo_name}/compare/{to_branch}...{from_branch}".format(
+            url=url,
+            organization=project,
+            repo_name=slug,
+            from_branch=from_branch,
+            to_branch=to_branch,
         )
     else:
         base_url = "{url}/projects/{project}/repos/{slug}/compare/commits?".format(
