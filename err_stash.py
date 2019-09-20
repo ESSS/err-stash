@@ -4,9 +4,11 @@ from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from configparser import ConfigParser
 from pathlib import Path
+from typing import List, Iterator
 
 import stashy
 import stashy.errors
+import attr
 from errbot import BotPlugin, botcmd, arg_botcmd
 from github import Github, GithubException
 from github.Branch import Branch
@@ -160,18 +162,18 @@ class GithubAPI:
         return repo.compare(to_branch, from_branch).commits
 
 
+@attr.s()
 class MergePlan:
     """
     Contains information about branch and PRs that will be involved in a merge operation.
     """
 
-    def __init__(self, project, slug, *, comes_from_github=False):
-        self.project = project
-        self.slug = slug
-        self.branches = []
-        self.pull_requests = []
-        self.to_branch = None
-        self.comes_from_github = comes_from_github
+    project = attr.ib()
+    slug = attr.ib()
+    comes_from_github = attr.ib(default=None)
+    branches = attr.ib(factory=list)
+    pull_requests = attr.ib(factory=list)
+    to_branch = attr.ib(default=None)
 
 
 def get_self_url(d):
@@ -196,10 +198,17 @@ class CheckError(Exception):
 
 
 def create_plans(
-    stash_api, github_api, stash_projects, github_organizations, branch_text
+    stash_api,
+    github_api,
+    stash_projects,
+    github_organizations,
+    branch_text,
+    *,
+    exactly_branch_name=False,
+    assure_has_prs=True,
 ):
     """
-    Go over all the branches in all repositories searching for branches and PRs that match the given branch text.
+    Go over all the branches in all Stash and GitHub repositories searching for branches and PRs that match the given branch text.
 
     :rtype: List[MergePlan]
     """
@@ -214,6 +223,10 @@ def create_plans(
         slug = repo["slug"]
         project = repo["project"]["key"]
         branches = list(stash_api.fetch_branches(project, slug, branch_text))
+        if exactly_branch_name:
+            branches = [
+                branch for branch in branches if branch["displayId"] == branch_text
+            ]
         if branches:
             plan = MergePlan(project, slug)
             plans.append(plan)
@@ -286,7 +299,7 @@ def create_plans(
             )
         )
 
-    if not has_prs:
+    if assure_has_prs and not has_prs:
         raise CheckError('No PRs are open with text `"{}"`'.format(branch_text))
     return plans
 
@@ -625,6 +638,83 @@ def merge(
         yield "{x} dry-run {x}".format(x="-" * 30)
 
 
+def delete_branches(
+    stash_api: StashAPI, github_api: GithubAPI, branches_to_delete: List[MergePlan]
+) -> Iterator[str]:
+    """
+    Responsible for deleting the received MergePlan's list (branches_to_delete).
+
+
+    :param stash_api: Instanced StashAPI already logged
+    :param github_api:  Instanced GithubAPI already logged
+    :param branches_to_delete: Populated MergePlan's list which will be deleted
+    :return: Yield strings as messages to be showed by Bender
+    """
+    if len(branches_to_delete) > 0:
+        yield f"Deleting Branches `{branches_to_delete[0].branches[0]['displayId']}`:"
+        for branch in branches_to_delete:
+            if branch.comes_from_github:
+                github_api.delete_branch(
+                    organization=branch.project,
+                    repo_name=branch.slug,
+                    branch_name=branch.branches[0]["displayId"],
+                )
+                yield f"Branch from `GitHub` project: `{branch.project}` - repository: `{branch.slug}` :nuclear-bomb:"
+            else:
+                if len(branch.pull_requests) > 0:
+                    pr = stash_api.fetch_pull_request(
+                        branch.project, branch.slug, branch.pull_requests[0]["id"]
+                    )
+                    pr.decline(branch.pull_requests[0]["version"])
+
+                stash_api.delete_branch(
+                    branch.project, branch.slug, branch.branches[0]["displayId"]
+                )
+                yield f"Branch from `Stash` project: `{branch.project}` - repository: `{branch.slug}` :nuclear-bomb:"
+    else:
+        yield "No branches to delete."
+
+
+def obtain_branches_to_delete(
+    stash_api: StashAPI,
+    github_api: GithubAPI,
+    stash_projects: List["str"],
+    github_organizations: List["str"],
+    branch_name: str,
+    branches_to_delete: List[MergePlan],
+) -> Iterator[str]:
+    """
+    Responsible for populate 'branches_to_delete' with the branches to be deleted afterwards,
+
+    :param stash_api: Instanced StashAPI already logged
+    :param github_api:  Instanced GithubAPI already logged
+    :param stash_projects: list of projects in Stash to be searched in
+    :param github_organizations: list of projects in GitHub to be searched in
+    :param branch_name: Full branch name to be deleted from all repositories that match the search
+    :param branches_to_delete: Empty list that will receive the to delete MergePlan's
+    :return: Yield strings as messages to be showed by Bender
+    """
+    try:
+        plans = create_plans(
+            stash_api,
+            github_api,
+            stash_projects,
+            github_organizations,
+            branch_name,
+            exactly_branch_name=True,
+            assure_has_prs=False,
+        )
+    except CheckError as e:
+        yield "\n".join(e.lines)
+        return
+
+    yield "Found branch `{}` in these repositories:".format(branch_name)
+    for plan in plans:
+        branches_to_delete.append(plan)
+        yield f"{'Stash' if not plan.comes_from_github else 'GitHub'}: {plan.slug} -> (commit id *{plan.branches[0]['latestCommit']}*) {'*has PR*' if len(plan.pull_requests) > 0 else ''}"
+    yield "*To confirm to delete this branches please _repeate_ the command*"
+
+
 class StashBot(BotPlugin):
     """Stash commands tailored to ESSS workflow"""
 
@@ -635,9 +725,11 @@ class StashBot(BotPlugin):
             "GITHUB_ORGANIZATIONS": None,
         }
 
-    def load_user_settings(self, user):
+    def load_user_settings(self, user, additional_settings: dict = None):
         key = "user:{}".format(user)
         settings = {"token": "", "github_token": ""}
+        if additional_settings:
+            settings.update(additional_settings)
         loaded = self.get(key, settings)
         settings.update(loaded)
         self.log.debug("LOAD ({}) settings: {}".format(user, settings))
@@ -662,7 +754,7 @@ class StashBot(BotPlugin):
             return "Stash plugin not configured, contact an admin."
         if not args:
             if settings["token"]:
-                return "Your API Token is: `{}` (user: {})".format(
+                return "Your Stash API Token is: `{}` (user: {})".format(
                     settings["token"], user
                 )
             else:
@@ -671,6 +763,57 @@ class StashBot(BotPlugin):
             settings["token"] = args[0]
             self.save_user_settings(user, settings)
             return "Token saved."
+
+    @botcmd(name="delete-branch", split_args_with=None)
+    def delete_branch(self, msg, args):
+        """Search the given branch in Stash and GitHub repositories, saving them and showing via Bender,
+        and if confirmed by running the same command twice, will decline all pull request and delete
+        the branches from all repositories"""
+        user = msg.frm.nick
+        if len(args) > 1:
+            return f"Unknown arguments {args[1:]}, please pass only the branch name to be deleted."
+        branch_to_delete = args[0]
+        settings = self.load_user_settings(
+            user, additional_settings={"delete-branches": ""}
+        )
+
+        if not settings["token"]:
+            return self.stash_token(msg, [])
+
+        if not settings["github_token"]:
+            return self.github_token(msg, [])
+
+        stash_api = StashAPI(
+            self.config["STASH_URL"], username=user, password=settings["token"]
+        )
+
+        github_api = GithubAPI(
+            login_or_token=settings["github_token"],
+            password=None,
+            organizations=tuple(self.config["GITHUB_ORGANIZATIONS"]),
+        )
+
+        if branch_to_delete not in settings["delete-branches"]:
+            branches: List[MergePlan] = list()
+            lines = list(
+                obtain_branches_to_delete(
+                    stash_api,
+                    github_api,
+                    self.config["STASH_PROJECTS"],
+                    self.config["GITHUB_ORGANIZATIONS"],
+                    branch_to_delete,
+                    branches,
+                )
+            )
+            settings["delete-branches"][branch_to_delete] = branches
+            self.save_user_settings(user, settings)
+        else:
+            lines = list(
+                delete_branches(
+                    stash_api, github_api, settings["delete-branches"][branch_to_delete]
+                )
+            )
+        return "\n".join(lines)
 
     @botcmd(split_args_with=None)
     def github_token(self, msg, args):
@@ -700,15 +843,19 @@ class StashBot(BotPlugin):
         user = msg.frm.nick
         settings = self.load_user_settings(user)
         if not settings["token"]:
-            return self.stash_token(msg, [])
+            yield self.stash_token(msg, [])
+            return
 
         if not settings["github_token"]:
-            return self.github_token(msg, [])
+            yield self.github_token(msg, [])
+            return
 
         stash_projects = self.config.get("STASH_PROJECTS", None)
         if stash_projects is None or stash_projects == []:
-            return "`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it."
+            yield "`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it."
+            return
 
+        yield "Working..."
         try:
             lines = list(
                 merge(
@@ -726,7 +873,7 @@ class StashBot(BotPlugin):
             )
         except CheckError as e:
             lines = e.lines
-        return "\n".join(lines)
+        yield "\n".join(lines)
 
 
 NO_TOKEN_MSG = """
