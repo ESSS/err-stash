@@ -14,6 +14,8 @@ from err_stash import (
     create_plans,
     ensure_text_matches_unique_branch,
     make_pr_link,
+    delete_branches,
+    obtain_branches_to_delete,
 )
 
 
@@ -27,6 +29,9 @@ class DummyPullRequest:
 
     def merge(self, version):
         self.merged_version = version
+
+    def decline(self, version):
+        pass
 
 
 @pytest.fixture
@@ -51,15 +56,35 @@ def mock_stash_api(mocker):
     }
 
     projects["PROJ-A"]["repo1"]["branches"] = [
-        dict(id="refs/heads/fb-ASIM-81-network", displayId="fb-ASIM-81-network"),
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3"),
+        dict(
+            id="refs/heads/fb-ASIM-81-network",
+            displayId="fb-ASIM-81-network",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        ),
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        ),
     ]
     projects["PROJ-A"]["repo2"]["branches"] = [
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3")
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        )
     ]
     projects["PROJ-B"]["repo3"]["branches"] = [
-        dict(id="refs/heads/fb-ASIM-81-network", displayId="fb-ASIM-81-network"),
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3"),
+        dict(
+            id="refs/heads/fb-ASIM-81-network",
+            displayId="fb-ASIM-81-network",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        ),
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        ),
     ]
 
     projects["PROJ-B"]["repo3"]["pull_requests"] = [
@@ -324,13 +349,25 @@ def test_merge_success(mock_stash_api):
     )
     assert pull_request.merged_version == "10"
     assert mock_stash_api["PROJ-A"]["repo1"]["branches"] == [
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3")
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        )
     ]
     assert mock_stash_api["PROJ-A"]["repo2"]["branches"] == [
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3")
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        )
     ]
     assert mock_stash_api["PROJ-B"]["repo3"]["branches"] == [
-        dict(id="refs/heads/fb-SSRL-1890-py3", displayId="fb-SSRL-1890-py3")
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        )
     ]
 
 
@@ -502,7 +539,7 @@ class TestBot:
 
         testbot.push_message("!stash token")
         response = testbot.pop_message()
-        assert response == "Your API Token is: secret-token (user: fry)"
+        assert response == "Your Stash API Token is: secret-token (user: fry)"
 
         testbot.push_message("!github token github-secret-token")
         response = testbot.pop_message()
@@ -617,6 +654,70 @@ def test_make_pr_link(github_api):
     )
 
 
+def test_obtain_branches_to_delete(mock_stash_api, github_api):
+    from_branch = "fb-ASIM-81-network"
+    mock_stash_api["PROJ-A"]["repo1"]["pull_requests"] = [
+        dict(
+            id="10",
+            fromRef=dict(id="refs/heads/" + from_branch),
+            toRef=dict(id="refs/heads/target_branch"),
+            displayId=from_branch,
+            links=make_link("url.com/for/10"),
+            version="10",
+            state="DECLINED",
+        )
+    ]
+    mock_stash_api["PROJ-A"]["repo1"]["pull_request"] = {"10": DummyPullRequest(True)}
+    mock_stash_api["PROJ-A"]["repo1"]["commits"] = {
+        ("refs/heads/" + from_branch, "refs/heads/target_branch"): ["A", "B"]
+    }
+
+    branches_to_delete = list()
+    stash_api = StashAPI(
+        "https://myserver.com/stash", username="fry", password="PASSWORD123"
+    )
+    github_api.repos["esss"]["deps"].branches.append(GitBranch(from_branch))
+    lines = list(
+        obtain_branches_to_delete(
+            stash_api,
+            github_api,
+            ["PROJ-A", "PROJ-B"],
+            ["esss"],
+            from_branch,
+            branches_to_delete,
+        )
+    )
+    assert (
+        "\n".join(lines) == "Found branch `fb-ASIM-81-network` in these repositories:\n"
+        "Stash: repo1 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
+        "Stash: repo3 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
+        "GitHub: deps -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) \n"
+        "*To confirm to delete this branches please _repeate_ the command*"
+    )
+    assert len(branches_to_delete) == 3
+
+
+def test_delete_branches(mock_stash_api, github_api):
+    stash_api = StashAPI(
+        "https://myserver.com/stash", username="fry", password="PASSWORD123"
+    )
+    branches_to_delete = create_plans(
+        stash_api,
+        github_api,
+        ["PROJ-A", "PROJ-B"],
+        ["esss"],
+        "fb-ASIM-81-network",
+        exactly_branch_name=True,
+        assure_has_prs=False,
+    )
+    lines = list(delete_branches(stash_api, github_api, branches_to_delete))
+    assert (
+        "\n".join(lines) == "Deleting Branches `fb-ASIM-81-network`:\n"
+        "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:\n"
+        "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:"
+    )
+
+
 class GitRepo:
     def __init__(self, name):
         self.owner = lambda: None
@@ -676,6 +777,7 @@ class GitBranch:
         self.name = name
         self.items = dict()
         self.items["displayId"] = name
+        self.items["latestCommit"] = "2a0ae67e039099e300ec972e22c281af19f4ac9d"
 
     def __getitem__(self, value):
         return self.items.get(value, "")

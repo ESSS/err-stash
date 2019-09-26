@@ -1,3 +1,8 @@
+**1.5.0**
+
+- Add new command `delete-branch <branch_to_delete>`.
+- Fixed a bug where `err-stash` would mistakenly create a Stash link when suggesting to create a PR for a Github branch.
+
 **1.4.0**
 
 - Add support to merge and close Github pull requests.
