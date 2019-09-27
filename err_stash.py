@@ -162,6 +162,13 @@ class GithubAPI:
         return repo.compare(to_branch, from_branch).commits
 
 
+@attr.s(frozen=True)
+class Branch:
+    id = attr.ib()
+    display_id = attr.ib()
+    latest_commit = attr.ib()
+
+
 @attr.s()
 class MergePlan:
     """
@@ -174,6 +181,10 @@ class MergePlan:
     branches = attr.ib(factory=list)
     pull_requests = attr.ib(factory=list)
     to_branch = attr.ib(default=None)
+
+    @property
+    def provider_name(self):
+        return "GitHub" if self.comes_from_github else "Stash"
 
 
 def get_self_url(d):
@@ -222,16 +233,19 @@ def create_plans(
     for repo in stash_repos:
         slug = repo["slug"]
         project = repo["project"]["key"]
-        branches = list(stash_api.fetch_branches(project, slug, branch_text))
+        branches = list(
+            Branch(b["id"], b["displayId"], b["latestCommit"])
+            for b in stash_api.fetch_branches(project, slug, branch_text)
+        )
         if exactly_branch_name:
             branches = [
-                branch for branch in branches if branch["displayId"] == branch_text
+                branch for branch in branches if branch.display_id == branch_text
             ]
         if branches:
             plan = MergePlan(project, slug)
             plans.append(plan)
             plan.branches = branches
-            branch_ids = [x["id"] for x in plan.branches]
+            branch_ids = [x.id for x in plan.branches]
             prs = list(stash_api.fetch_pull_requests(project, slug))
             for pr in prs:
                 if pr["fromRef"]["id"] in branch_ids:
@@ -244,11 +258,7 @@ def create_plans(
     github_branch_text = branch_text
     if len(plans) > 0 and len(plans[0].branches) > 0:
         # if we already found the branch name on Stash, we can use its name here
-        branch_id = plans[0].branches[0]["id"]
-        if "refs/heads/" in branch_id:
-            branch_id = branch_id[len("refs/heads/") :]
-
-        github_branch_text = branch_id
+        github_branch_text = plans[0].branches[0].display_id
 
     organization_to_repos = defaultdict(list)
     for organization in github_organizations:
@@ -276,7 +286,8 @@ def create_plans(
 
                 plan = MergePlan(organization, repo_name, comes_from_github=True)
                 plans.append(plan)
-                plan.branches = branches
+                # b.name is passed twice because github uses the same `id` and `display_id`
+                plan.branches = [Branch(b.name, b.name, b.commit.sha) for b in branches]
 
                 prs = github_api.fetch_pull_requests(organization, repo_name)
 
@@ -314,10 +325,7 @@ def ensure_text_matches_unique_branch(plans, branch_text):
                 error_lines.append(
                     'More than one branch matches the text `"{}"`:'.format(branch_text)
                 )
-            names = ", ".join(
-                "`{}`".format(x.name if isinstance(x, Branch) else x["displayId"])
-                for x in plan.branches
-            )
+            names = ", ".join("`{}`".format(x.display_id) for x in plan.branches)
             error_lines.append("`{slug}`: {names}".format(slug=plan.slug, names=names))
 
     if error_lines:
@@ -325,7 +333,7 @@ def ensure_text_matches_unique_branch(plans, branch_text):
         raise CheckError(error_lines)
 
     branch = plans[0].branches[0]
-    return branch.name if isinstance(branch, Branch) else branch["displayId"]
+    return branch.display_id
 
 
 def ensure_unique_pull_requests(plans, from_branch_display_id):
@@ -631,7 +639,7 @@ def merge(
                     branch_name=plan.branches[0].name,
                 )
             else:
-                stash_api.delete_branch(plan.project, plan.slug, plan.branches[0]["id"])
+                stash_api.delete_branch(plan.project, plan.slug, plan.branches[0].id)
     repo_list = ["`{}`".format(p.slug) for p in plans]
     yield "Branch deleted from repositories: {}".format(", ".join(repo_list))
     if not confirm:
@@ -651,13 +659,14 @@ def delete_branches(
     :return: Yield strings as messages to be showed by Bender
     """
     if len(branches_to_delete) > 0:
-        yield f"Deleting Branches `{branches_to_delete[0].branches[0]['displayId']}`:"
+
+        yield f"Deleting Branches `{branches_to_delete[0].branches[0].display_id}`:"
         for branch in branches_to_delete:
             if branch.comes_from_github:
                 github_api.delete_branch(
                     organization=branch.project,
                     repo_name=branch.slug,
-                    branch_name=branch.branches[0]["displayId"],
+                    branch_name=branch.branches[0].display_id,
                 )
                 yield f"Branch from `GitHub` project: `{branch.project}` - repository: `{branch.slug}` :nuclear-bomb:"
             else:
@@ -668,7 +677,7 @@ def delete_branches(
                     pr.decline(branch.pull_requests[0]["version"])
 
                 stash_api.delete_branch(
-                    branch.project, branch.slug, branch.branches[0]["displayId"]
+                    branch.project, branch.slug, branch.branches[0].display_id
                 )
                 yield f"Branch from `Stash` project: `{branch.project}` - repository: `{branch.slug}` :nuclear-bomb:"
     else:
@@ -711,7 +720,7 @@ def obtain_branches_to_delete(
     yield "Found branch `{}` in these repositories:".format(branch_name)
     for plan in plans:
         branches_to_delete.append(plan)
-        yield f"{'Stash' if not plan.comes_from_github else 'GitHub'}: {plan.slug} -> (commit id *{plan.branches[0]['latestCommit']}*) {'*has PR*' if len(plan.pull_requests) > 0 else ''}"
+        yield f"{plan.provider_name}: {plan.slug} (commit id *{plan.branches[0].latest_commit}*) {'*has PR*' if len(plan.pull_requests) > 0 else ''}"
     yield "*To confirm to delete this branches please _repeate_ the command*"
 
 

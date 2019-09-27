@@ -1,3 +1,7 @@
+**1.5.1**
+
+- Fix a bug when getting the commit hash of a Branch in GitHub, causing the `delete-branch` command fail
+
 **1.5.0**
 
 - Add new command `delete-branch <branch_to_delete>`.
