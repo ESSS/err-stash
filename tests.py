@@ -1,7 +1,6 @@
 import re
 from collections import OrderedDict
 
-import attr
 import pytest
 import stashy
 import stashy.errors
@@ -65,26 +64,26 @@ def mock_stash_api(mocker):
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="f9a7c6df341325822e3ea264cfe39e5ef8c73aa4",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         ),
     ]
     projects["PROJ-A"]["repo2"]["branches"] = [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="94cd166631d14dab533858b9b47e9584a2ff3f65",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         )
     ]
     projects["PROJ-B"]["repo3"]["branches"] = [
         dict(
             id="refs/heads/fb-ASIM-81-network",
             displayId="fb-ASIM-81-network",
-            latestCommit="a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         ),
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         ),
     ]
 
@@ -203,35 +202,17 @@ def make_link(url):
 
 def test_duplicate_branches(mock_stash_api):
     mock_stash_api["PROJ-A"]["repo1"]["branches"] = [
+        dict(id="refs/heads/fb-ASIM-81-network", displayId="fb-ASIM-81-network"),
         dict(
-            id="refs/heads/fb-ASIM-81-network",
-            displayId="fb-ASIM-81-network",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
-        ),
-        dict(
-            id="refs/heads/fb-ASIM-81-network-test",
-            displayId="fb-ASIM-81-network-test",
-            latestCommit="d4959b0578a5c06aaf3b2b1e195e0b57acf80c30",
+            id="refs/heads/fb-ASIM-81-network-test", displayId="fb-ASIM-81-network-test"
         ),
     ]
     mock_stash_api["PROJ-A"]["repo2"]["branches"] = [
-        dict(
-            id="refs/heads/fb-ASIM-81-network",
-            displayId="fb-ASIM-81-network-test",
-            latestCommit="97eff6cac35a03d8e8f0b830e6ac9fca5fcf6109",
-        )
+        dict(id="refs/heads/fb-ASIM-81-network")
     ]
     mock_stash_api["PROJ-B"]["repo3"]["branches"] = [
-        dict(
-            id="refs/heads/fb-ASIM-81-network",
-            displayId="fb-ASIM-81-network-test",
-            latestCommit="a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd",
-        ),
-        dict(
-            id="refs/heads/fb-SSRL-1890-py3",
-            displayId="fb-SSRL-1890-py3",
-            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
-        ),
+        dict(id="refs/heads/fb-ASIM-81-network"),
+        dict(id="refs/heads/fb-SSRL-1890-py3"),
     ]
 
     call_merge(
@@ -371,21 +352,21 @@ def test_merge_success(mock_stash_api):
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="f9a7c6df341325822e3ea264cfe39e5ef8c73aa4",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         )
     ]
     assert mock_stash_api["PROJ-A"]["repo2"]["branches"] == [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="94cd166631d14dab533858b9b47e9584a2ff3f65",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         )
     ]
     assert mock_stash_api["PROJ-B"]["repo3"]["branches"] == [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
         )
     ]
 
@@ -588,10 +569,6 @@ def github_api(mocker):
     }
     api.organizations = organizations
     api.repos = repos
-    api.repos["esss"]["deps"].branches.append(GitBranch("fb-SSRL-1890-py3"))
-    api.repos["esss"]["conda-devenv"].branches.append(
-        GitBranch("fb-branch-only-in-github")
-    )
     return api
 
 
@@ -677,82 +654,50 @@ def test_make_pr_link(github_api):
     )
 
 
-@pytest.mark.parametrize(
-    "branch_name, expected_message",
-    [
-        (
-            "fb-ASIM-81-network",
-            (
-                "Stash: repo1 (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) \n"
-                "Stash: repo3 (commit id *a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd*) *has PR*"
-            ),
-        ),
-        (
-            "fb-branch-only-in-github",
-            "GitHub: conda-devenv (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) ",
-        ),
-        (
-            "fb-SSRL-1890-py3",
-            (
-                "Stash: repo1 (commit id *f9a7c6df341325822e3ea264cfe39e5ef8c73aa4*) \n"
-                "Stash: repo2 (commit id *94cd166631d14dab533858b9b47e9584a2ff3f65*) \n"
-                "Stash: repo3 (commit id *590f467a41ee833a33f8b6c44316bde00b9cda70*) \n"
-                "GitHub: deps (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) "
-            ),
-        ),
-    ],
-)
-def test_obtain_branches_to_delete(
-    mock_stash_api, github_api, branch_name, expected_message
-):
+def test_obtain_branches_to_delete(mock_stash_api, github_api):
+    from_branch = "fb-ASIM-81-network"
+    mock_stash_api["PROJ-A"]["repo1"]["pull_requests"] = [
+        dict(
+            id="10",
+            fromRef=dict(id="refs/heads/" + from_branch),
+            toRef=dict(id="refs/heads/target_branch"),
+            displayId=from_branch,
+            links=make_link("url.com/for/10"),
+            version="10",
+            state="DECLINED",
+        )
+    ]
+    mock_stash_api["PROJ-A"]["repo1"]["pull_request"] = {"10": DummyPullRequest(True)}
+    mock_stash_api["PROJ-A"]["repo1"]["commits"] = {
+        ("refs/heads/" + from_branch, "refs/heads/target_branch"): ["A", "B"]
+    }
+
     branches_to_delete = list()
     stash_api = StashAPI(
         "https://myserver.com/stash", username="fry", password="PASSWORD123"
     )
+    github_api.repos["esss"]["deps"].branches.append(GitBranch(from_branch))
     lines = list(
         obtain_branches_to_delete(
             stash_api,
             github_api,
             ["PROJ-A", "PROJ-B"],
             ["esss"],
-            branch_name,
+            from_branch,
             branches_to_delete,
         )
     )
-    assert "\n".join(lines) == (
-        f"Found branch `{branch_name}` in these repositories:"
-        f"\n{expected_message}\n"
-        f"*To confirm to delete this branches please _repeate_ the command*"
+    assert (
+        "\n".join(lines) == "Found branch `fb-ASIM-81-network` in these repositories:\n"
+        "Stash: repo1 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
+        "Stash: repo3 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
+        "GitHub: deps -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) \n"
+        "*To confirm to delete this branches please _repeate_ the command*"
     )
-    assert len(branches_to_delete) == len(expected_message.split("\n"))
+    assert len(branches_to_delete) == 3
 
 
-@pytest.mark.parametrize(
-    "branch_name, expected_message",
-    [
-        (
-            "fb-ASIM-81-network",
-            (
-                "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:\n"
-                "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:"
-            ),
-        ),
-        (
-            "fb-SSRL-1890-py3",
-            (
-                "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:\n"
-                "Branch from `Stash` project: `PROJ-A` - repository: `repo2` :nuclear-bomb:\n"
-                "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:\n"
-                "Branch from `GitHub` project: `esss` - repository: `deps` :nuclear-bomb:"
-            ),
-        ),
-        (
-            "fb-branch-only-in-github",
-            "Branch from `GitHub` project: `esss` - repository: `conda-devenv` :nuclear-bomb:",
-        ),
-    ],
-)
-def test_delete_branches(mock_stash_api, github_api, branch_name, expected_message):
+def test_delete_branches(mock_stash_api, github_api):
     stash_api = StashAPI(
         "https://myserver.com/stash", username="fry", password="PASSWORD123"
     )
@@ -761,13 +706,15 @@ def test_delete_branches(mock_stash_api, github_api, branch_name, expected_messa
         github_api,
         ["PROJ-A", "PROJ-B"],
         ["esss"],
-        branch_name,
+        "fb-ASIM-81-network",
         exactly_branch_name=True,
         assure_has_prs=False,
     )
     lines = list(delete_branches(stash_api, github_api, branches_to_delete))
-    assert "\n".join(lines) == (
-        f"Deleting Branches `{branch_name}`:\n" f"{expected_message}"
+    assert (
+        "\n".join(lines) == "Deleting Branches `fb-ASIM-81-network`:\n"
+        "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:\n"
+        "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:"
     )
 
 
@@ -830,8 +777,7 @@ class GitBranch:
         self.name = name
         self.items = dict()
         self.items["displayId"] = name
-        default_sha = "e685cbba9aab1683a4a504582b4e30af36cdfddb"
-        self.commit = attr.make_class("Commit", {"sha": attr.ib(default=default_sha)})()
+        self.items["latestCommit"] = "2a0ae67e039099e300ec972e22c281af19f4ac9d"
 
     def __getitem__(self, value):
         return self.items.get(value, "")
