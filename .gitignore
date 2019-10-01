@@ -6,3 +6,4 @@ default.ini
 /data/
 config.py
 errbot.log
+.coverage
