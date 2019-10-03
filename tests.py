@@ -1,11 +1,14 @@
 import re
 from collections import OrderedDict
 
+import attr
+import github
 import pytest
 import stashy
 import stashy.errors
 from github import GithubException
 
+import err_stash
 from err_stash import (
     GithubAPI,
     merge,
@@ -64,26 +67,26 @@ def mock_stash_api(mocker):
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="f9a7c6df341325822e3ea264cfe39e5ef8c73aa4",
         ),
     ]
     projects["PROJ-A"]["repo2"]["branches"] = [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="94cd166631d14dab533858b9b47e9584a2ff3f65",
         )
     ]
     projects["PROJ-B"]["repo3"]["branches"] = [
         dict(
             id="refs/heads/fb-ASIM-81-network",
             displayId="fb-ASIM-81-network",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd",
         ),
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
         ),
     ]
 
@@ -172,7 +175,7 @@ def mock_stash_api(mocker):
     return projects
 
 
-def call_merge(branch_text, matching_lines, force=False):
+def call_merge(branch_text, matching_lines, *, force=False, github_organizations=None):
     try:
         lines = list(
             merge(
@@ -182,37 +185,57 @@ def call_merge(branch_text, matching_lines, force=False):
                 stash_password="PASSWORD123",
                 github_username_or_token="",
                 github_password="",
-                github_organizations=[],
+                github_organizations=list()
+                if github_organizations is None
+                else github_organizations,
                 branch_text=branch_text,
                 confirm=True,
                 force=force,
             )
         )
     except CheckError as e:
-        lines = e.lines
+        lines = list(e.lines)
     from _pytest.pytester import LineMatcher
 
-    matcher = LineMatcher(list(lines))
-    matcher.re_match_lines(matching_lines)
+    matcher = LineMatcher(sorted(lines))
+    matcher.re_match_lines(sorted(matching_lines))
 
 
 def make_link(url):
     return dict(self=[dict(href=url)])
 
 
-def test_duplicate_branches(mock_stash_api):
+def test_duplicate_branches(mock_stash_api, github_api):
     mock_stash_api["PROJ-A"]["repo1"]["branches"] = [
-        dict(id="refs/heads/fb-ASIM-81-network", displayId="fb-ASIM-81-network"),
         dict(
-            id="refs/heads/fb-ASIM-81-network-test", displayId="fb-ASIM-81-network-test"
+            id="refs/heads/fb-ASIM-81-network",
+            displayId="fb-ASIM-81-network",
+            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+        ),
+        dict(
+            id="refs/heads/fb-ASIM-81-network-test",
+            displayId="fb-ASIM-81-network-test",
+            latestCommit="d4959b0578a5c06aaf3b2b1e195e0b57acf80c30",
         ),
     ]
     mock_stash_api["PROJ-A"]["repo2"]["branches"] = [
-        dict(id="refs/heads/fb-ASIM-81-network")
+        dict(
+            id="refs/heads/fb-ASIM-81-network",
+            displayId="fb-ASIM-81-network-test",
+            latestCommit="97eff6cac35a03d8e8f0b830e6ac9fca5fcf6109",
+        )
     ]
     mock_stash_api["PROJ-B"]["repo3"]["branches"] = [
-        dict(id="refs/heads/fb-ASIM-81-network"),
-        dict(id="refs/heads/fb-SSRL-1890-py3"),
+        dict(
+            id="refs/heads/fb-ASIM-81-network",
+            displayId="fb-ASIM-81-network-test",
+            latestCommit="a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd",
+        ),
+        dict(
+            id="refs/heads/fb-SSRL-1890-py3",
+            displayId="fb-SSRL-1890-py3",
+            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
+        ),
     ]
 
     call_merge(
@@ -301,7 +324,7 @@ def test_branch_commits_without_pr(mock_stash_api):
         "ASIM-81",
         [
             r"These repositories have commits in `fb-ASIM-81-network` but no PRs:",
-            r"`repo1`: \*\*1 commit\*\* \(\[create PR\]\({pr_link}\)\)".format(
+            r"`repo1`: \*1 commit\* \(\[create PR\]\({pr_link}\)\)".format(
                 pr_link=pr_link
             ),
             r"You need to create PRs for your changes before merging this branch.",
@@ -315,7 +338,7 @@ def test_branch_missing(mock_stash_api):
         "ASIM-81",
         [
             r"Branch `fb-ASIM-81-network` merged into:",
-            r":white_check_mark: `repo3` **2 commits** -> `master`",
+            r":white_check_mark: `repo3` *2 commits* -> `master`",
             r"Branch deleted from repositories: `repo3`",
         ],
     )
@@ -336,39 +359,73 @@ def test_merge_conflicts(mock_stash_api):
     )
 
 
-def test_merge_success(mock_stash_api):
+def test_merge_success(mock_stash_api, github_api, mocker):
+    mocker.patch.object(err_stash, "GithubAPI", return_value=github_api)
+
     pull_request = mock_stash_api["PROJ-B"]["repo3"]["pull_request"]["10"]
     call_merge(
         "ASIM-81",
         [
             r"Branch `fb-ASIM-81-network` merged into:",
-            r":white_check_mark: `repo3` **2 commits** -> `master`",
+            r":white_check_mark: `repo3` *2 commits* -> `master`",
+            r":white_check_mark: `conda-devenv` *3 commits* -> `master`",
             r"`repo1` - (no changes)",
-            r"Branch deleted from repositories: `repo1`, `repo3`",
+            r"Branch deleted from repositories: `conda-devenv`, `repo1`, `repo3`",
         ],
+        github_organizations=["esss"],
     )
     assert pull_request.merged_version == "10"
     assert mock_stash_api["PROJ-A"]["repo1"]["branches"] == [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="f9a7c6df341325822e3ea264cfe39e5ef8c73aa4",
         )
     ]
     assert mock_stash_api["PROJ-A"]["repo2"]["branches"] == [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="94cd166631d14dab533858b9b47e9584a2ff3f65",
         )
     ]
     assert mock_stash_api["PROJ-B"]["repo3"]["branches"] == [
         dict(
             id="refs/heads/fb-SSRL-1890-py3",
             displayId="fb-SSRL-1890-py3",
-            latestCommit="2a0ae67e039099e300ec972e22c281af19f4ac9d",
+            latestCommit="590f467a41ee833a33f8b6c44316bde00b9cda70",
         )
     ]
+
+
+def test_merge_success_github(mock_stash_api, github_api, mocker):
+    mocker.patch.object(err_stash, "GithubAPI", return_value=github_api)
+    call_merge(
+        "fb-branch-only-in-github",
+        [
+            r"Branch `fb-branch-only-in-github` merged into:",
+            r":white_check_mark: `conda-devenv` *3 commits* -> `master`",
+            r":white_check_mark: `deps` *3 commits* -> `master`",
+            r"Branch deleted from repositories: `conda-devenv`, `deps`",
+        ],
+        github_organizations=["esss"],
+    )
+
+
+def test_merge_branch_nonexistent(mock_stash_api, github_api, mocker):
+    mocker.patch.object(err_stash, "GithubAPI", return_value=github_api)
+    call_merge(
+        "fb-branch-nonexistent",
+        [
+            r'Could not find any branch with text `"fb-branch-nonexistent"` in any repositories of Stash projects: `PROJ-A`, `PROJ-B` nor Github organizations: `esss`\.'
+        ],
+        github_organizations=["esss"],
+    )
+
+
+def test_merge_no_pull_request(mock_stash_api, github_api, mocker):
+    mocker.patch.object(err_stash, "GithubAPI", return_value=github_api)
+    call_merge("SSRL-1890", [r'No PRs are open with text `"SSRL-1890"`'])
 
 
 def test_prs_with_different_targets_force_merge(mock_stash_api):
@@ -391,8 +448,8 @@ def test_prs_with_different_targets_force_merge(mock_stash_api):
         "ASIM-81",
         [
             r"Branch `fb-ASIM-81-network` merged into:",
-            r":white_check_mark: `repo1` **2 commits** -> `features`",
-            r":white_check_mark: `repo3` **2 commits** -> `master`",
+            r":white_check_mark: `repo1` *2 commits* -> `features`",
+            r":white_check_mark: `repo3` *2 commits* -> `master`",
             r"Branch deleted from repositories: `repo1`, `repo3`",
         ],
         force=True,
@@ -402,6 +459,30 @@ def test_prs_with_different_targets_force_merge(mock_stash_api):
 def test_no_pull_requests(mock_stash_api):
     del mock_stash_api["PROJ-B"]["repo3"]["pull_requests"]
     call_merge("ASIM-81", [r'No PRs are open with text `"ASIM-81"`'])
+
+
+def test_no_pull_request_github(mock_stash_api, github_api, mocker):
+    mock_stash_api["PROJ-A"]["repo1"]["pull_requests"] = [
+        dict(
+            id="10",
+            fromRef=dict(id="refs/heads/fb-SSRL-1890-py3"),
+            toRef=dict(id="refs/heads/master"),
+            displayId="fb-SSRL-1890-py3",
+            links=make_link("url.com/for/10"),
+            version="10",
+        )
+    ]
+    mock_stash_api["PROJ-B"]["repo3"]["pull_request"] = {"10": DummyPullRequest(True)}
+
+    mocker.patch.object(err_stash, "GithubAPI", return_value=github_api)
+
+    matching_lines = [
+        r"These repositories have commits in `fb-SSRL-1890-py3` but no PRs:",
+        r"`deps`: *3 commits* ([create PR](https://github.com/esss/deps/compare/refs/heads/master...fb-SSRL-1890-py3))",
+        r"You need to create PRs for your changes before merging this branch.",
+    ]
+
+    call_merge("fb-SSRL-1890-py3", matching_lines, github_organizations=["esss"])
 
 
 def test_no_matching_branch(mock_stash_api):
@@ -447,7 +528,7 @@ def test_merge_default_branch(mock_stash_api):
         from_branch,
         [
             r"Branch `fb-SSRL-1890-py3` merged into:",
-            r":white_check_mark: `repo1` **2 commits** -> `target_branch`",
+            r":white_check_mark: `repo1` *2 commits* -> `target_branch`",
             r"`repo2` - (no changes)",
             r"`repo3` - (no changes)",
             r"Branch deleted from repositories: `repo1`, `repo2`, `repo3`",
@@ -554,6 +635,23 @@ class TestBot:
         response = testbot.pop_message()
         assert "1.0.0" in response
 
+    def test_delete_branch(self, testbot, stash_plugin, monkeypatch):
+        config = {
+            "STASH_URL": "https://my-server.com/stash",
+            "STASH_PROJECTS": [],
+            "GITHUB_ORGANIZATIONS": [],
+        }
+        monkeypatch.setattr(stash_plugin, "config", config)
+        testbot.push_message("!stash token secret-token")
+        testbot.pop_message()
+        testbot.push_message("!github token github-secret-token")
+        testbot.pop_message()
+        testbot.push_message("!delete-branch branch-to-delete")
+        assert (
+            testbot.pop_message()
+            == "STASH_PROJECTS not configured. Use !plugin config Stash to configure it."
+        )
+
 
 @pytest.fixture
 def github_api(mocker):
@@ -569,6 +667,12 @@ def github_api(mocker):
     }
     api.organizations = organizations
     api.repos = repos
+    api.repos["esss"]["deps"].branches.append(GitBranch("fb-SSRL-1890-py3"))
+    api.repos["esss"]["deps"].branches.append(GitBranch("fb-branch-only-in-github"))
+    api.repos["esss"]["conda-devenv"].branches.append(GitBranch("fb-ASIM-81-network"))
+    api.repos["esss"]["conda-devenv"].branches.append(
+        GitBranch("fb-branch-only-in-github")
+    )
     return api
 
 
@@ -602,12 +706,12 @@ def test_github_delete_branch(github_api):
 
 def test_github_fetch_pull_requests(github_api):
     prs = github_api.fetch_pull_requests("esss", "jira2latex")
-    assert [pr.id for pr in prs] == [0, 1, 2]
+    assert [pr.number for pr in prs] == [0, 1, 2, 3, 4]
 
 
 def test_github_fetch_pull_request(github_api):
     pr = github_api.fetch_pull_request("esss", "jira2latex", 42)
-    assert pr.id == 42
+    assert pr.number == 42
 
 
 def test_github_fetch_repo_commits(github_api):
@@ -654,50 +758,109 @@ def test_make_pr_link(github_api):
     )
 
 
-def test_obtain_branches_to_delete(mock_stash_api, github_api):
-    from_branch = "fb-ASIM-81-network"
-    mock_stash_api["PROJ-A"]["repo1"]["pull_requests"] = [
-        dict(
-            id="10",
-            fromRef=dict(id="refs/heads/" + from_branch),
-            toRef=dict(id="refs/heads/target_branch"),
-            displayId=from_branch,
-            links=make_link("url.com/for/10"),
-            version="10",
-            state="DECLINED",
-        )
-    ]
-    mock_stash_api["PROJ-A"]["repo1"]["pull_request"] = {"10": DummyPullRequest(True)}
-    mock_stash_api["PROJ-A"]["repo1"]["commits"] = {
-        ("refs/heads/" + from_branch, "refs/heads/target_branch"): ["A", "B"]
-    }
-
+@pytest.mark.parametrize(
+    "branch_name, expected_message, success",
+    [
+        (
+            "fb-ASIM-81-network",
+            [
+                "Stash: repo1 (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) ",
+                r"Stash: repo3 (commit id *a938dfdfbaa1f25ccbc39e16060f73c44e5ef0dd*) *has PR*",
+                r"GitHub: conda-devenv (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) *has PR*",
+            ],
+            True,
+        ),
+        (
+            "fb-branch-only-in-github",
+            [
+                r"GitHub: conda-devenv (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) *has PR*",
+                r"GitHub: deps (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) *has PR*",
+            ],
+            True,
+        ),
+        (
+            "fb-SSRL-1890-py3",
+            [
+                r"Stash: repo1 (commit id *f9a7c6df341325822e3ea264cfe39e5ef8c73aa4*) ",
+                r"Stash: repo2 (commit id *94cd166631d14dab533858b9b47e9584a2ff3f65*) ",
+                r"Stash: repo3 (commit id *590f467a41ee833a33f8b6c44316bde00b9cda70*) ",
+                r"GitHub: deps (commit id *e685cbba9aab1683a4a504582b4e30af36cdfddb*) ",
+            ],
+            True,
+        ),
+        (
+            "fb-branch-nonexistent",
+            [
+                r'Could not find any branch with text `"fb-branch-nonexistent"` in any repositories of Stash projects: `PROJ-A`, `PROJ-B` nor Github organizations: `esss`.'
+            ],
+            False,
+        ),
+    ],
+)
+def test_obtain_branches_to_delete(
+    mock_stash_api, github_api, branch_name, expected_message, success
+):
     branches_to_delete = list()
     stash_api = StashAPI(
         "https://myserver.com/stash", username="fry", password="PASSWORD123"
     )
-    github_api.repos["esss"]["deps"].branches.append(GitBranch(from_branch))
     lines = list(
         obtain_branches_to_delete(
             stash_api,
             github_api,
             ["PROJ-A", "PROJ-B"],
             ["esss"],
-            from_branch,
+            branch_name,
             branches_to_delete,
         )
     )
-    assert (
-        "\n".join(lines) == "Found branch `fb-ASIM-81-network` in these repositories:\n"
-        "Stash: repo1 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
-        "Stash: repo3 -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) *has PR*\n"
-        "GitHub: deps -> (commit id *2a0ae67e039099e300ec972e22c281af19f4ac9d*) \n"
-        "*To confirm to delete this branches please _repeate_ the command*"
-    )
-    assert len(branches_to_delete) == 3
+
+    from _pytest.pytester import LineMatcher
+
+    matcher = LineMatcher(sorted(lines))
+
+    if success:
+        matching_lines = [f"Found branch `{branch_name}` in these repositories:"]
+        matching_lines.extend(expected_message)
+        matching_lines.extend(
+            [r"*To confirm to delete this branches please _repeate_ the command*"]
+        )
+        assert len(branches_to_delete) == len(expected_message)
+    else:
+        matching_lines = expected_message
+    matcher.re_match_lines(sorted(matching_lines))
 
 
-def test_delete_branches(mock_stash_api, github_api):
+@pytest.mark.parametrize(
+    "branch_name, expected_message",
+    [
+        (
+            "fb-ASIM-81-network",
+            [
+                "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:",
+                "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:",
+                "Branch from `GitHub` project: `esss` - repository: `conda-devenv` :nuclear-bomb:",
+            ],
+        ),
+        (
+            "fb-SSRL-1890-py3",
+            [
+                "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:",
+                "Branch from `Stash` project: `PROJ-A` - repository: `repo2` :nuclear-bomb:",
+                "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:",
+                "Branch from `GitHub` project: `esss` - repository: `deps` :nuclear-bomb:",
+            ],
+        ),
+        (
+            "fb-branch-only-in-github",
+            [
+                "Branch from `GitHub` project: `esss` - repository: `conda-devenv` :nuclear-bomb:",
+                "Branch from `GitHub` project: `esss` - repository: `deps` :nuclear-bomb:",
+            ],
+        ),
+    ],
+)
+def test_delete_branches(mock_stash_api, github_api, branch_name, expected_message):
     stash_api = StashAPI(
         "https://myserver.com/stash", username="fry", password="PASSWORD123"
     )
@@ -706,16 +869,23 @@ def test_delete_branches(mock_stash_api, github_api):
         github_api,
         ["PROJ-A", "PROJ-B"],
         ["esss"],
-        "fb-ASIM-81-network",
+        branch_name,
         exactly_branch_name=True,
         assure_has_prs=False,
     )
     lines = list(delete_branches(stash_api, github_api, branches_to_delete))
-    assert (
-        "\n".join(lines) == "Deleting Branches `fb-ASIM-81-network`:\n"
-        "Branch from `Stash` project: `PROJ-A` - repository: `repo1` :nuclear-bomb:\n"
-        "Branch from `Stash` project: `PROJ-B` - repository: `repo3` :nuclear-bomb:"
-    )
+
+    from _pytest.pytester import LineMatcher
+
+    matcher = LineMatcher(sorted(lines))
+    matching_lines = [f"Deleting Branches `{branch_name}`:"]
+    matching_lines.extend(expected_message)
+    matcher.re_match_lines(sorted(matching_lines))
+
+
+def test_delete_branch_empty():
+    lines = list(delete_branches(None, None, []))
+    assert lines == ["No branches to delete."]
 
 
 class GitRepo:
@@ -744,6 +914,8 @@ class GitRepo:
             GitPR(0, "branch-1", "master"),
             GitPR(1, "branch-2", "branch-3"),
             GitPR(2, "branch-3", "master"),
+            GitPR(3, "fb-ASIM-81-network", "master"),
+            GitPR(4, "fb-branch-only-in-github", "master"),
         ]
 
     def compare(self, to_branch, from_branch):
@@ -764,12 +936,16 @@ class GitRepo:
 
 class GitPR:
     def __init__(self, id, from_branch, to_branch):
-        self.id = id
+        self.number = id
         self.head = lambda: None
         self.head.ref = from_branch
+        self.mergeable = True
 
         self.base = lambda: None
         self.base.ref = to_branch
+
+    def merge(self):
+        return
 
 
 class GitBranch:
@@ -777,7 +953,8 @@ class GitBranch:
         self.name = name
         self.items = dict()
         self.items["displayId"] = name
-        self.items["latestCommit"] = "2a0ae67e039099e300ec972e22c281af19f4ac9d"
+        default_sha = "e685cbba9aab1683a4a504582b4e30af36cdfddb"
+        self.commit = attr.make_class("Commit", {"sha": attr.ib(default=default_sha)})()
 
     def __getitem__(self, value):
         return self.items.get(value, "")

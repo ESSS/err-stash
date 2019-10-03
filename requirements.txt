@@ -2,3 +2,4 @@ attrs
 stashy
 errbot~=5.2
 pygithub
+pytest-cov
