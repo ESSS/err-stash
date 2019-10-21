@@ -725,7 +725,7 @@ def obtain_branches_to_delete(
     for plan in plans:
         branches_to_delete.append(plan)
         yield f"{plan.provider_name}: {plan.slug} (commit id *{plan.branches[0].latest_commit}*) {'*has PR*' if len(plan.pull_requests) > 0 else ''}"
-    yield "*To confirm to delete this branches please _repeate_ the command*"
+    yield "*To confirm, please repeat the command*"
 
 
 class StashBot(BotPlugin):
@@ -781,20 +781,25 @@ class StashBot(BotPlugin):
         and if confirmed by running the same command twice, will decline all pull request and delete
         the branches from all repositories"""
         user = msg.frm.nick
+        yield "Working..."
         if len(args) > 1:
-            return f"Unknown arguments {args[1:]}, please pass only the branch name to be deleted."
+            yield f"Unknown arguments {args[1:]}, please pass only the branch name to be deleted."
+            return
         branch_to_delete = args[0]
         settings = self.load_user_settings(user)
 
         if not settings["token"]:
-            return self.stash_token(msg, [])
+            yield self.stash_token(msg, [])
+            return
 
         if not settings["github_token"]:
-            return self.github_token(msg, [])
+            yield self.github_token(msg, [])
+            return
 
         stash_projects = self.config.get("STASH_PROJECTS", None)
         if stash_projects is None or stash_projects == []:
-            return "`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it."
+            yield "`STASH_PROJECTS` not configured. Use `!plugin config Stash` to configure it."
+            return
 
         stash_api = StashAPI(
             self.config["STASH_URL"], username=user, password=settings["token"]
@@ -828,7 +833,7 @@ class StashBot(BotPlugin):
                 )
             )
         self.save_user_settings(user, settings)
-        return "\n".join(lines)
+        yield "\n".join(lines)
 
     @botcmd(split_args_with=None)
     def github_token(self, msg, args):
