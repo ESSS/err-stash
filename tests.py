@@ -647,6 +647,7 @@ class TestBot:
         testbot.push_message("!github token github-secret-token")
         testbot.pop_message()
         testbot.push_message("!delete-branch branch-to-delete")
+        assert testbot.pop_message() == "Working..."
         assert (
             testbot.pop_message()
             == "STASH_PROJECTS not configured. Use !plugin config Stash to configure it."
@@ -655,8 +656,8 @@ class TestBot:
 
 @pytest.fixture
 def github_api(mocker):
+    mocker.patch.object(github, "Github", autospec=True)
     api = GithubAPI()
-    mocker.patch.object(api, "_github", autospec=True)
     organizations = {"esss": "esss"}
     repos = {
         "esss": {
@@ -822,9 +823,7 @@ def test_obtain_branches_to_delete(
     if success:
         matching_lines = [f"Found branch `{branch_name}` in these repositories:"]
         matching_lines.extend(expected_message)
-        matching_lines.extend(
-            [r"*To confirm to delete this branches please _repeate_ the command*"]
-        )
+        matching_lines.append(r"*To confirm, please repeat the command*")
         assert len(branches_to_delete) == len(expected_message)
     else:
         matching_lines = expected_message
