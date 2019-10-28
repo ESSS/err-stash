@@ -1,4 +1,5 @@
 -r requirements.txt
+errbot
 pytest >=3.3
 pytest-mock
 attrs
