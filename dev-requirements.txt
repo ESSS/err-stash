@@ -1,6 +1,7 @@
 -r requirements.txt
 errbot
 pytest >=3.3
+pytest-cov
 pytest-mock
 attrs
 pre-commit
