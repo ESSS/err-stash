@@ -746,10 +746,10 @@ def test_make_pr_link(github_api):
         == expected_pr_link
     )
 
-    expected_pr_link = fr"https://eden.esss.com.br/stash/projects/esss/repos/some_project/compare/commits?sourceBranch=dev_branch&targetBranch=master"
+    expected_pr_link = fr"https://eden.esss.co/stash/projects/esss/repos/some_project/compare/commits?sourceBranch=dev_branch&targetBranch=master"
     assert (
         make_pr_link(
-            fr"https://eden.esss.com.br/stash",
+            fr"https://eden.esss.co/stash",
             "esss",
             "some_project",
             "dev_branch",
