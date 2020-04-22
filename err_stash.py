@@ -733,7 +733,7 @@ class StashBot(BotPlugin):
 
     def get_configuration_template(self):
         return {
-            "STASH_URL": "https://eden.esss.com.br/stash",
+            "STASH_URL": "https://eden.esss.co/stash",
             "STASH_PROJECTS": None,
             "GITHUB_ORGANIZATIONS": None,
         }
@@ -966,7 +966,7 @@ def main(args):  # pragma: no cover
     try:
         lines = list(
             merge(
-                "https://eden.esss.com.br/stash",
+                "https://eden.esss.co/stash",
                 options.projects.split(","),
                 stash_username=options.username,
                 stash_password=options.password,
